@@ -4,7 +4,77 @@ public partial class EncounterTradeArchive;
 
 public partial class EncounterTrade
 {
-    public Species SpeciesID => (Species)Species;
+    public Species SpeciesID
+    {
+        get => (Species)Species;
+        set => Species = (int)value;
+    }
+
+    public Species RequiredSpeciesID
+    {
+        get => (Species)RequiredSpecies;
+        set => RequiredSpecies = (int)value;
+    }
+
+    public int HeldItemID
+    {
+        get => HeldItem;
+        set => HeldItem = value;
+    }
+
+    public Nature NatureID
+    {
+        get => (Nature)Nature;
+        set => Nature = value == global::pkNX.Structures.Nature.Random ? (int)global::pkNX.Structures.Nature.Random25 : (int)value;
+    }
+
+    public Nature RequiredNatureID
+    {
+        get => (Nature)RequiredNature;
+        set => RequiredNature = value == global::pkNX.Structures.Nature.Random ? (int)global::pkNX.Structures.Nature.Random25 : (int)value;
+    }
+
+    public FixedGender GenderType
+    {
+        get => (FixedGender)Gender;
+        set => Gender = (sbyte)value;
+    }
+
+    public Shiny ShinyType
+    {
+        get => (Shiny)ShinyLock;
+        set => ShinyLock = (int)value;
+    }
+
+    public TradeAbilitySlot AbilitySlot
+    {
+        get => (TradeAbilitySlot)AbilityNumber;
+        set => AbilityNumber = (byte)value;
+    }
+
+    public Move RelearnMove1
+    {
+        get => (Move)Relearn1;
+        set => Relearn1 = (ushort)value;
+    }
+
+    public Move RelearnMove2
+    {
+        get => (Move)Relearn2;
+        set => Relearn2 = (ushort)value;
+    }
+
+    public Move RelearnMove3
+    {
+        get => (Move)Relearn3;
+        set => Relearn3 = (ushort)value;
+    }
+
+    public Move RelearnMove4
+    {
+        get => (Move)Relearn4;
+        set => Relearn4 = (ushort)value;
+    }
 
     public static ReadOnlySpan<int> BallToItem =>
     [
@@ -92,4 +162,12 @@ public partial class EncounterTrade
         return
             $"            new({Species:000},{Level:00},{Memory:00},{TextVar:000},{Feeling:00},{Intensity}) {{ {ability}{tid}{ivs}{dyna}{otgender}{gender}{shiny}{nature}{giga}{relearn}{altform}{ball} }},{comment}";
     }
+}
+
+public enum TradeAbilitySlot
+{
+    Default = 0,
+    Ability1 = 1,
+    Ability2 = 2,
+    HiddenAbility = 3,
 }
