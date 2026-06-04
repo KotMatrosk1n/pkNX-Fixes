@@ -1021,7 +1021,9 @@ internal class EditorSWSH : EditorBase
         var data = obj[0];
         var root = FlatBufferConverter.DeserializeFrom<SymbolBehaveRoot>(data);
         var cache = new DataCache<SymbolBehave>(root.Table!);
-        var names = root.Table.Select(z => $"{z.Species}{(z.Form != 0 ? $"-{z.Form}" : "")}").ToArray();
+        var speciesNames = ROM.GetStrings(TextName.SpeciesNames);
+        SymbolBehaviorPropertyGridUtil.Configure(speciesNames, root.Table.Select(z => z.Behavior).ToArray());
+        var names = root.Table.Select(SymbolBehaviorPropertyGridUtil.GetSymbolBehaviorName).ToArray();
         using var form = new GenericEditor<SymbolBehave>(cache, names, "Symbol Behavior Editor", Randomize);
         form.ShowDialog();
         if (!form.Modified)
