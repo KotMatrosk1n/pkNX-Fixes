@@ -18,5 +18,5 @@ public partial class PlacementZoneStaticObjectSpawn
 
 public partial class PlacementZoneStaticObjectUnknown
 {
-    public override string ToString() => $"{Field00} {Field01} {Field02} {Field03} {Field04}";
+    public override string ToString() => $"{Field00}: {Field01:0.#}, {Field02:0.#}, {Field03:0.#}, {Field04:0.#}";
 }

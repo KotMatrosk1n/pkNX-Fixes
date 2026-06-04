@@ -5,7 +5,10 @@ public partial class PlacementZoneTrainerHolder
     public override string ToString()
     {
         var hashModel = Field00.Field00.HashModel;
-        var name = PlacementZoneOtherNPCHolder.Models.TryGetValue(hashModel, out var model) ? model : hashModel.ToString("X16");
-        return name;
+        var model = PlacementZoneLabelProvider.Model(hashModel);
+        var trainer = PlacementZoneLabelProvider.Trainer(TrainerID);
+        return trainer.StartsWith("Unresolved trainer", System.StringComparison.Ordinal)
+            ? $"{model}: {TrainerID:X16}"
+            : $"{model}: {trainer}";
     }
 }
