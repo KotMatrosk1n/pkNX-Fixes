@@ -44,7 +44,7 @@ public sealed class ShinyRateSWSH(byte[] data, int offset = 0x700_000) : ShinyRa
 
     public override bool IsEditable => FunctionOffset > 0;
 
-    public override bool IsDefault => !IsAlways && !IsAlways;
+    public override bool IsDefault => !IsAlways && !IsFixed;
     public override bool IsFixed => !IsPresent(Data, RerollCountCheckDefault, FunctionOffset + RerollCountCheckOffset);
     public override bool IsAlways => IsPresent(Data, RerollCountBreakNop, FunctionOffset + RerollCountBreakOffset);
 
