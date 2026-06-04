@@ -48,11 +48,5 @@ public sealed class ShopInventoryPropertyGridObject(Func<IList<int>> getItems, A
         set => setItems(value);
     }
 
-    public override string ToString() => string.Join(", ", Items.Select(GetItemName));
-
-    private static string GetItemName(int item)
-    {
-        var names = pkNX.Structures.ItemConverter.ItemNames;
-        return (uint)item < (uint)names.Length ? names[item] : item.ToString();
-    }
+    public override string ToString() => ShopItemNameFormatter.GetSummary(Items);
 }

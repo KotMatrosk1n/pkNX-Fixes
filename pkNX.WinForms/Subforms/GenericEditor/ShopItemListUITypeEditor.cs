@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Design;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 using System.Windows.Forms.Design;
 using pkNX.Structures;
@@ -26,34 +27,16 @@ public sealed class ShopItemListUITypeEditor : UITypeEditor
             return value;
 
         var edited = form.Items.ToList();
-        if (ReplaceItems(items, edited))
-            return items;
-
+        if (context?.Instance is not null)
+            context.PropertyDescriptor?.SetValue(context.Instance, edited);
         return edited;
-    }
-
-    private static bool ReplaceItems(IList<int> items, IReadOnlyList<int> edited)
-    {
-        try
-        {
-            items.Clear();
-            foreach (var item in edited)
-                items.Add(item);
-            return true;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
     }
 }
 
 public sealed class ShopItemListEditorForm : Form
 {
+    private const string ItemColumnName = "Item";
+
     private readonly BindingList<ShopItemRow> Rows;
     private readonly DataGridView Grid = new();
     private readonly Button AddButton = new();
@@ -72,7 +55,7 @@ public sealed class ShopItemListEditorForm : Form
         MaximizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(720, 520);
+        ClientSize = new Size(840, 520);
 
         var choices = CreateChoices(itemNames, items).ToArray();
         DefaultItemID = choices.FirstOrDefault()?.ID ?? 0;
@@ -100,6 +83,7 @@ public sealed class ShopItemListEditorForm : Form
 
         AcceptButton = OkButton;
         CancelButton = CancelEditorButton;
+        WinFormsTheme.Apply(this);
         ResetIndexes();
     }
 
@@ -110,12 +94,36 @@ public sealed class ShopItemListEditorForm : Form
         Grid.AllowUserToAddRows = false;
         Grid.AllowUserToDeleteRows = false;
         Grid.AutoGenerateColumns = false;
+        Grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+        Grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        Grid.ColumnHeadersHeight = 30;
+        Grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         Grid.Dock = DockStyle.Fill;
+        Grid.EditMode = DataGridViewEditMode.EditOnEnter;
         Grid.MultiSelect = false;
         Grid.RowHeadersVisible = false;
+        Grid.RowTemplate.Height = 29;
         Grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         Grid.DataSource = Rows;
+        Grid.CellClick += (_, e) => OpenItemDropDown(e.RowIndex, e.ColumnIndex);
+        Grid.CurrentCellDirtyStateChanged += (_, _) =>
+        {
+            if (Grid.IsCurrentCellDirty)
+                Grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        };
+        Grid.DataBindingComplete += (_, _) => ApplyGridRowLayout();
         Grid.DataError += (_, __) => { };
+        Grid.EditingControlShowing += (_, e) =>
+        {
+            if (e.Control is ComboBox comboBox)
+            {
+                comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+                comboBox.DropDownWidth = Math.Max(comboBox.Width, 520);
+                comboBox.MaxDropDownItems = 16;
+                WinFormsTheme.Apply(comboBox);
+            }
+        };
+        Grid.BackgroundColor = SystemColors.Window;
 
         Grid.Columns.Add(new DataGridViewTextBoxColumn
         {
@@ -129,12 +137,16 @@ public sealed class ShopItemListEditorForm : Form
         {
             DataPropertyName = nameof(ShopItemRow.ItemID),
             HeaderText = "Item",
+            Name = ItemColumnName,
             DataSource = choices,
             DisplayMember = nameof(ItemChoice.Display),
             ValueMember = nameof(ItemChoice.ID),
-            AutoComplete = true,
+            AutoComplete = false,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+            DisplayStyleForCurrentCellOnly = false,
             FlatStyle = FlatStyle.Flat,
-            Width = 520,
+            MaxDropDownItems = 16,
+            Width = 660,
         });
 
         Grid.Columns.Add(new DataGridViewTextBoxColumn
@@ -142,8 +154,28 @@ public sealed class ShopItemListEditorForm : Form
             DataPropertyName = nameof(ShopItemRow.ItemID),
             HeaderText = "ID",
             ReadOnly = true,
-            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            Width = 80,
         });
+    }
+
+    private void ApplyGridRowLayout()
+    {
+        foreach (DataGridViewRow row in Grid.Rows)
+            row.Height = 29;
+    }
+
+    private void OpenItemDropDown(int rowIndex, int columnIndex)
+    {
+        if (rowIndex < 0 || columnIndex < 0 || Grid.Columns[columnIndex].Name != ItemColumnName)
+            return;
+
+        Grid.CurrentCell = Grid.Rows[rowIndex].Cells[columnIndex];
+        Grid.BeginEdit(true);
+        BeginInvoke(new Action(() =>
+        {
+            if (Grid.EditingControl is ComboBox comboBox)
+                comboBox.DroppedDown = true;
+        }));
     }
 
     private void ConfigureButtons()
@@ -173,14 +205,13 @@ public sealed class ShopItemListEditorForm : Form
             if (!seen.Add(i))
                 continue;
 
-            var name = itemNames[i];
-            yield return new ItemChoice(i, string.IsNullOrWhiteSpace(name) ? $"Item {i}" : $"{name} ({i})");
+            yield return new ItemChoice(i, ShopItemNameFormatter.GetDisplayName(i, true));
         }
 
         foreach (var item in currentItems)
         {
             if (seen.Add(item))
-                yield return new ItemChoice(item, item.ToString());
+                yield return new ItemChoice(item, ShopItemNameFormatter.GetDisplayName(item, true));
         }
 
         if (seen.Count == 0)
@@ -245,10 +276,29 @@ public sealed class ShopItemListEditorForm : Form
         Close();
     }
 
-    private sealed class ShopItemRow(int index, int itemID)
+    private sealed class ShopItemRow(int index, int itemID) : INotifyPropertyChanged
     {
+        private int _itemID = itemID;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
         public int Index { get; set; } = index;
-        public int ItemID { get; set; } = itemID;
+
+        public int ItemID
+        {
+            get => _itemID;
+            set
+            {
+                if (value == _itemID)
+                    return;
+
+                _itemID = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     private sealed class ItemChoice(int id, string display)

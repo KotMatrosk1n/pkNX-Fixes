@@ -403,6 +403,7 @@ internal class EditorSWSH : EditorBase
         var arc = ROM.GetFile(GameFile.Shops);
         var data = arc[0];
         pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
+        ShopItemNameFormatter.MoveNames = ROM.GetStrings(TextName.MoveNames);
         int[] PossibleHeldItems = Legal.GetRandomItemList(ROM.Game);
         var shop = FlatBufferConverter.DeserializeFrom<ShopInventory>(data);
         if (!shop2)
@@ -425,7 +426,7 @@ internal class EditorSWSH : EditorBase
                     var items = shopDefinition.Inventories.Items;
                     for (int i = 0; i < items.Count; i++)
                     {
-                        if (Legal.Pouch_TMHM_SM.Contains((ushort)items[i]) || items[i] == 1230) // skip TMs
+                        if (Legal.Pouch_TMHM_SWSH.Contains((ushort)items[i])) // skip TMs/TRs
                             continue;
                         items[i] = PossibleHeldItems[Randomization.Util.Random.Next(PossibleHeldItems.Length)];
                     }
@@ -496,8 +497,7 @@ internal class EditorSWSH : EditorBase
 
     private static string GetItemName(int item)
     {
-        var names = pkNX.Structures.ItemConverter.ItemNames;
-        return (uint)item < (uint)names.Length ? names[item] : item.ToString();
+        return ShopItemNameFormatter.GetDisplayName(item);
     }
 
     public void EditMoves()

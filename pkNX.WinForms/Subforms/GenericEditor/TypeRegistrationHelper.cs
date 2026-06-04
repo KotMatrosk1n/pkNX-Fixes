@@ -250,6 +250,9 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
         if (item is null)
             return string.Empty;
 
+        if (IsShopItemList && item is int itemID)
+            return ShopItemNameFormatter.GetDisplayName(itemID);
+
         if (ElementConverter.CanConvertTo(context, typeof(string)))
             return ElementConverter.ConvertToString(context, culture, item) ?? string.Empty;
 
