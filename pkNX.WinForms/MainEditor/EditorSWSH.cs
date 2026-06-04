@@ -721,7 +721,11 @@ internal class EditorSWSH : EditorBase
         var data = obj[0];
         var rentals = FlatBufferConverter.DeserializeFrom<RentalArchive>(data);
         var cache = new DataCache<Rental>(rentals.Table!);
-        var names = rentals.Table.Select((z, i) => $"{i:000} {z.Hash1:X16}").ToArray();
+        pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
+        ShopItemNameFormatter.MoveNames = ROM.GetStrings(TextName.MoveNames);
+        ShopItemNameFormatter.MachineTable = Item8MachineTable.FromItemData(ROM[GameFile.ItemStats][0]);
+        RentalPropertyGridUtil.Configure(ROM.GetStrings(TextName.SpeciesNames), ROM.GetStrings(TextName.MoveNames));
+        var names = rentals.Table.Select(RentalPropertyGridUtil.GetRentalName).ToArray();
         using var form = new GenericEditor<Rental>(cache, names, "Rental Editor");
         form.ShowDialog();
         if (!form.Modified)
