@@ -14,9 +14,20 @@ namespace pkNX.WinForms;
 
 public partial class PokeDataUI : Form
 {
+    private sealed record SpeciesComboEntry(int Index, string Text)
+    {
+        public override string ToString() => Text;
+    }
+
     private readonly bool Loaded;
     private readonly GameData Data;
     private bool CloseConfirmed;
+    private bool SpeciesSelectionQueued;
+    private bool UpdatingSpeciesFilter;
+    private bool SuppressSpeciesAutoComplete;
+    private ListBox? SpeciesSearchList;
+    private int CurrentSpeciesIndex = -1;
+    private int PendingSpeciesIndex = -1;
     private const int PokemonHeaderHeight = 32;
     private const int ThemedTabHeight = 24;
     private const int NestedTabHeaderHeight = 40;
@@ -60,6 +71,7 @@ public partial class PokeDataUI : Form
 
         Megas = Editor.Mega != null ? InitMega(2) : [];
 
+        ConfigureSpeciesSelector();
         CB_Species.SelectedIndex = 1;
         Loaded = true;
 
@@ -70,6 +82,11 @@ public partial class PokeDataUI : Form
 
         ApplyPokemonEditorTheme();
         FormClosing += PokeDataUI_FormClosing;
+        Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            CB_Species.Focus();
+            CB_Species.SelectAll();
+        }));
     }
 
     public readonly GameManager ROM;
@@ -89,6 +106,7 @@ public partial class PokeDataUI : Form
 
     private readonly string[] entryNames;
     private readonly int[] baseForms, formVal;
+    private SpeciesComboEntry[] SpeciesEntries = [];
 
     public IPersonalInfo cPersonal;
     public Learnset cLearnset;
@@ -126,8 +144,8 @@ public partial class PokeDataUI : Form
             }
         }
 
-        var entries = entryNames.Select((z, i) => $"{z} - {i:000}");
-        CB_Species.Items.AddRange(entries.ToArray());
+        SpeciesEntries = entryNames.Select((z, i) => new SpeciesComboEntry(i, $"{z} - {i:000}")).ToArray();
+        CB_Species.Items.AddRange(SpeciesEntries);
 
         foreach (ComboBox cb in helditem_boxes)
             cb.Items.AddRange(items);
@@ -211,9 +229,447 @@ public partial class PokeDataUI : Form
 
     public void UpdateIndex(object sender, EventArgs e)
     {
-        if (Loaded)
+        if (UpdatingSpeciesFilter)
+            return;
+
+        var index = GetSelectedSpeciesIndex();
+        if (index < 0)
+            return;
+
+        if (!Loaded)
+        {
+            ApplySpeciesIndex(index, false);
+            return;
+        }
+
+        QueueSpeciesIndexUpdate(index);
+    }
+
+    private void ConfigureSpeciesSelector()
+    {
+        CB_Species.DropDownStyle = ComboBoxStyle.DropDown;
+        CB_Species.AutoCompleteMode = AutoCompleteMode.None;
+        CB_Species.AutoCompleteSource = AutoCompleteSource.None;
+        CB_Species.DrawMode = DrawMode.OwnerDrawFixed;
+        CB_Species.ItemHeight = 22;
+        CB_Species.DropDownHeight = 1;
+        CB_Species.DrawItem += DrawSpeciesItem;
+        CB_Species.TextUpdate += (_, _) =>
+        {
+            var append = !SuppressSpeciesAutoComplete;
+            SuppressSpeciesAutoComplete = false;
+            FilterSpeciesEntries(append);
+        };
+        CB_Species.DropDown += (_, _) =>
+        {
+            BeginInvoke((MethodInvoker)(() =>
+            {
+                CB_Species.DroppedDown = false;
+                ShowSpeciesSearchList(GetSpeciesSearchText());
+            }));
+        };
+        CB_Species.SelectionChangeCommitted += (_, _) =>
+        {
+            if (GetSelectedSpeciesIndex() is { } index && index >= 0)
+                QueueSpeciesIndexUpdate(index);
+        };
+        CB_Species.DropDownClosed += (_, _) => CB_Species.DroppedDown = false;
+        CB_Species.Leave += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            if (SpeciesSearchList?.Focused == true)
+                return;
+
+            CommitSpeciesTextSelection();
+            HideSpeciesSearchList();
+        }));
+        CB_Species.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                RestoreCurrentSpeciesText();
+                HideSpeciesSearchList();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (e.KeyCode == Keys.Down && SpeciesSearchList is { Visible: true, Items.Count: > 0 } list)
+            {
+                list.SelectedIndex = Math.Max(0, list.SelectedIndex);
+                list.Focus();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (e.KeyCode is Keys.Back or Keys.Delete)
+            {
+                HandleSpeciesDeleteKey(e);
+                return;
+            }
+
+            if (e.KeyCode != Keys.Enter)
+                return;
+
+            CommitSpeciesTextSelection();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+        };
+
+        SpeciesSearchList = new ListBox
+        {
+            BackColor = WinFormsTheme.InputBackground,
+            BorderStyle = BorderStyle.FixedSingle,
+            Cursor = Cursors.Default,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ForeColor = WinFormsTheme.Text,
+            IntegralHeight = false,
+            ItemHeight = 22,
+            Visible = false,
+        };
+        SpeciesSearchList.DrawItem += DrawSpeciesListItem;
+        SpeciesSearchList.Click += (_, _) => CommitSpeciesListSelection();
+        SpeciesSearchList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                CommitSpeciesListSelection();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (e.KeyCode == Keys.Escape)
+            {
+                HideSpeciesSearchList();
+                CB_Species.Focus();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        };
+        SpeciesSearchList.Leave += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            if (CB_Species.Focused)
+                return;
+
+            HideSpeciesSearchList();
+        }));
+    }
+
+    private void HandleSpeciesDeleteKey(KeyEventArgs e)
+    {
+        SuppressSpeciesAutoComplete = true;
+        if (CB_Species.SelectionLength == 0)
+        {
+            var caret = CB_Species.SelectionStart;
+            var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < CB_Species.Text.Length;
+            if (!canDelete)
+                SuppressSpeciesAutoComplete = false;
+            return;
+        }
+
+        var text = CB_Species.Text;
+        var selectionStart = Math.Min(CB_Species.SelectionStart, text.Length);
+        var newText = e.KeyCode == Keys.Back && selectionStart > 0
+            ? text[..(selectionStart - 1)]
+            : text[..selectionStart];
+
+        SetSpeciesSearchText(newText);
+        SuppressSpeciesAutoComplete = false;
+        e.Handled = true;
+        e.SuppressKeyPress = true;
+    }
+
+    private void QueueSpeciesIndexUpdate(int index)
+    {
+        PendingSpeciesIndex = index;
+        if (SpeciesSelectionQueued || IsDisposed || !IsHandleCreated)
+            return;
+
+        SpeciesSelectionQueued = true;
+        BeginInvoke((MethodInvoker)(() =>
+        {
+            SpeciesSelectionQueued = false;
+            var queuedIndex = PendingSpeciesIndex;
+            PendingSpeciesIndex = -1;
+            ApplySpeciesIndex(queuedIndex, true);
+        }));
+    }
+
+    private void ApplySpeciesIndex(int index, bool saveCurrent)
+    {
+        if ((uint)index >= (uint)entryNames.Length)
+            return;
+
+        if (index == CurrentSpeciesIndex)
+        {
+            SetSpeciesText(index);
+            return;
+        }
+
+        if (saveCurrent)
             SaveCurrent();
-        LoadIndex(CB_Species.SelectedIndex);
+
+        LoadIndex(index);
+        CurrentSpeciesIndex = index;
+        SetSpeciesText(index);
+    }
+
+    private void CommitSpeciesTextSelection()
+    {
+        var index = GetSpeciesIndexFromText(CB_Species.Text);
+        if (index < 0)
+        {
+            RestoreCurrentSpeciesText();
+            HideSpeciesSearchList();
+            return;
+        }
+
+        HideSpeciesSearchList();
+        if (Loaded)
+            QueueSpeciesIndexUpdate(index);
+        else
+            ApplySpeciesIndex(index, false);
+    }
+
+    private int GetSpeciesIndexFromText(string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+            return -1;
+
+        foreach (var entry in SpeciesEntries)
+        {
+            if (string.Equals(entry.Text, text, StringComparison.OrdinalIgnoreCase))
+                return entry.Index;
+        }
+
+        var separator = text.LastIndexOf(" - ", StringComparison.Ordinal);
+        if (separator >= 0 && int.TryParse(text[(separator + 3)..], out var suffixIndex) && (uint)suffixIndex < (uint)SpeciesEntries.Length)
+            return suffixIndex;
+
+        var match = -1;
+        foreach (var entry in SpeciesEntries)
+        {
+            if (!SpeciesMatches(entry, text))
+                continue;
+            if (match >= 0)
+                return -1;
+            match = entry.Index;
+        }
+
+        return match;
+    }
+
+    private int GetSelectedSpeciesIndex() => CB_Species.SelectedItem is SpeciesComboEntry entry ? entry.Index : -1;
+
+    private void FilterSpeciesEntries(bool appendAutoComplete)
+    {
+        if (UpdatingSpeciesFilter)
+            return;
+
+        var userText = GetSpeciesSearchText();
+        var matches = GetSpeciesMatches(userText).ToArray();
+        var autoCompleteMatch = appendAutoComplete ? GetSpeciesAutoCompleteMatch(userText, matches) : null;
+        var displayText = autoCompleteMatch?.Text ?? userText;
+        var selectionStart = autoCompleteMatch == null ? userText.Length : Math.Min(userText.Length, autoCompleteMatch.Text.Length);
+        var selectionLength = autoCompleteMatch == null ? 0 : autoCompleteMatch.Text.Length - selectionStart;
+
+        UpdatingSpeciesFilter = true;
+        CB_Species.BeginUpdate();
+        CB_Species.Items.Clear();
+        CB_Species.Items.AddRange(matches);
+        CB_Species.EndUpdate();
+        CB_Species.Text = displayText;
+        CB_Species.SelectionStart = selectionStart;
+        CB_Species.SelectionLength = selectionLength;
+
+        UpdatingSpeciesFilter = false;
+        ShowSpeciesSearchList(userText, matches);
+    }
+
+    private void SetSpeciesSearchText(string text)
+    {
+        UpdatingSpeciesFilter = true;
+        CB_Species.Text = text;
+        CB_Species.SelectionStart = text.Length;
+        CB_Species.SelectionLength = 0;
+        UpdatingSpeciesFilter = false;
+        FilterSpeciesEntries(false);
+    }
+
+    private void ShowSpeciesSearchList(string text)
+    {
+        ShowSpeciesSearchList(text, GetSpeciesMatches(text).ToArray());
+    }
+
+    private void ShowSpeciesSearchList(string text, IReadOnlyCollection<SpeciesComboEntry> matches)
+    {
+        if (SpeciesSearchList == null)
+            return;
+
+        if (SpeciesSearchList.Parent != this)
+            Controls.Add(SpeciesSearchList);
+
+        SpeciesSearchList.BeginUpdate();
+        SpeciesSearchList.Items.Clear();
+        foreach (var match in matches)
+            SpeciesSearchList.Items.Add(match);
+        SpeciesSearchList.EndUpdate();
+
+        if (matches.Count == 0 || !CB_Species.Focused && SpeciesSearchList.Focused != true)
+        {
+            HideSpeciesSearchList();
+            return;
+        }
+
+        const int maxVisibleRows = 10;
+        var visibleRows = Math.Min(matches.Count, maxVisibleRows);
+        var screenLocation = CB_Species.Parent?.PointToScreen(CB_Species.Location) ?? PointToScreen(CB_Species.Location);
+        var location = PointToClient(new Point(screenLocation.X, screenLocation.Y + CB_Species.Height));
+        var availableHeight = Math.Max(SpeciesSearchList.ItemHeight + 2, ClientSize.Height - location.Y - 4);
+        var height = Math.Min(availableHeight, visibleRows * SpeciesSearchList.ItemHeight + 2);
+
+        SpeciesSearchList.Bounds = new Rectangle(location.X, location.Y, CB_Species.Width, height);
+        SpeciesSearchList.Visible = true;
+        SpeciesSearchList.BringToFront();
+        SpeciesSearchList.SelectedIndex = matches.Count > 0 ? 0 : -1;
+    }
+
+    private void HideSpeciesSearchList()
+    {
+        if (SpeciesSearchList != null)
+            SpeciesSearchList.Visible = false;
+    }
+
+    private void CommitSpeciesListSelection()
+    {
+        if (SpeciesSearchList?.SelectedItem is not SpeciesComboEntry entry)
+            return;
+
+        HideSpeciesSearchList();
+        CB_Species.Focus();
+        if (Loaded)
+            QueueSpeciesIndexUpdate(entry.Index);
+        else
+            ApplySpeciesIndex(entry.Index, false);
+    }
+
+    private IEnumerable<SpeciesComboEntry> GetSpeciesMatches(string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+            return SpeciesEntries;
+
+        return SpeciesEntries
+            .Where(entry => SpeciesMatches(entry, text))
+            .OrderBy(entry => SpeciesMatchRank(entry, text))
+            .ThenBy(entry => entry.Index);
+    }
+
+    private static bool SpeciesMatches(SpeciesComboEntry entry, string text)
+    {
+        return entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase)
+            || entry.Index.ToString("000").StartsWith(text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int SpeciesMatchRank(SpeciesComboEntry entry, string text)
+    {
+        if (entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+            return 0;
+        if (entry.Index.ToString("000").StartsWith(text, StringComparison.OrdinalIgnoreCase))
+            return 1;
+        return 2;
+    }
+
+    private static SpeciesComboEntry? GetSpeciesAutoCompleteMatch(string text, IReadOnlyList<SpeciesComboEntry> matches)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+            return null;
+
+        return matches.FirstOrDefault(entry => entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetSpeciesSearchText()
+    {
+        var text = CB_Species.Text;
+        var selectionStart = Math.Min(CB_Species.SelectionStart, text.Length);
+        return selectionStart <= 0 ? text : text[..selectionStart];
+    }
+
+    private void ResetSpeciesEntries()
+    {
+        var wasUpdating = UpdatingSpeciesFilter;
+        UpdatingSpeciesFilter = true;
+        CB_Species.BeginUpdate();
+        CB_Species.Items.Clear();
+        CB_Species.Items.AddRange(SpeciesEntries);
+        CB_Species.EndUpdate();
+        UpdatingSpeciesFilter = wasUpdating;
+    }
+
+    private void SetSpeciesText(int index)
+    {
+        if ((uint)index >= (uint)SpeciesEntries.Length)
+            return;
+
+        UpdatingSpeciesFilter = true;
+        ResetSpeciesEntries();
+        CB_Species.SelectedItem = SpeciesEntries[index];
+        CB_Species.Text = SpeciesEntries[index].Text;
+        CB_Species.SelectionStart = 0;
+        CB_Species.SelectionLength = 0;
+        UpdatingSpeciesFilter = false;
+        HideSpeciesSearchList();
+    }
+
+    private void RestoreCurrentSpeciesText()
+    {
+        if ((uint)CurrentSpeciesIndex < (uint)SpeciesEntries.Length)
+            SetSpeciesText(CurrentSpeciesIndex);
+    }
+
+    private static void DrawSpeciesItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not ComboBox comboBox || e.Index < 0 || e.Index >= comboBox.Items.Count)
+            return;
+
+        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+
+        using var background = new SolidBrush(backColor);
+        e.Graphics.FillRectangle(background, e.Bounds);
+        TextRenderer.DrawText(
+            e.Graphics,
+            comboBox.Items[e.Index]?.ToString() ?? string.Empty,
+            comboBox.Font,
+            e.Bounds,
+            foreColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        e.DrawFocusRectangle();
+    }
+
+    private static void DrawSpeciesListItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
+            return;
+
+        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+
+        using var background = new SolidBrush(backColor);
+        e.Graphics.FillRectangle(background, e.Bounds);
+        TextRenderer.DrawText(
+            e.Graphics,
+            listBox.Items[e.Index]?.ToString() ?? string.Empty,
+            listBox.Font,
+            new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 4, e.Bounds.Height),
+            foreColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        e.DrawFocusRectangle();
     }
 
     private void LoadIndex(int index)
