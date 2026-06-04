@@ -17,8 +17,44 @@ public sealed partial class SSWE : Form
     private readonly EncounterArchive Hidden;
     private readonly GameManagerSWSH ROM;
     private ulong entry;
+    private bool sizingToContent;
+    private bool CloseConfirmed;
 
     private readonly EncounterList8[] SL;
+
+    private sealed class ThemedLeftTabControl : TabControl
+    {
+        private const int WmPaint = 0x000F;
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == WmPaint)
+                PaintUnusedTabGutter();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Invalidate();
+        }
+
+        private void PaintUnusedTabGutter()
+        {
+            if (Alignment != TabAlignment.Left || TabPages.Count == 0 || IsDisposed)
+                return;
+
+            var lastTab = GetTabRect(TabPages.Count - 1);
+            var gutterTop = Math.Max(0, lastTab.Bottom);
+            if (gutterTop >= Height)
+                return;
+
+            var gutterWidth = Math.Max(DisplayRectangle.Left, lastTab.Right);
+            using var graphics = CreateGraphics();
+            using var brush = new SolidBrush(WinFormsTheme.AlternateRowBackground);
+            graphics.FillRectangle(brush, new Rectangle(0, gutterTop, gutterWidth, Height - gutterTop));
+        }
+    }
 
     public SSWE(GameManagerSWSH rom, EncounterArchive sym, EncounterArchive hid)
     {
@@ -37,8 +73,21 @@ public sealed partial class SSWE : Form
             z.Initialize();
 
         PG_Species.SelectedObject = EditUtil.Settings.Species;
+        WinFormsTheme.Apply(this);
+        splitContainer1.Panel2.BackColor = WinFormsTheme.AlternateRowBackground;
+        TC_Types.BackColor = WinFormsTheme.AlternateRowBackground;
+        TC_Types.DrawItem -= TC_Tables_DrawItem;
+        TC_Types.DrawItem += TC_Tables_DrawItem;
+        TC_Types.SelectedIndexChanged += (_, _) => FitWindowToActiveTab();
+        EnsureHeaderHeight();
 
         LoadLocations();
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        FitWindowToActiveTab();
     }
 
     private class LocationHash(ulong hash, string loc)
@@ -81,6 +130,8 @@ public sealed partial class SSWE : Form
     {
         Load(SL, Symbols, "Symbols");
         Load(SL, Hidden, "Hidden");
+        FitWindowToActiveTab();
+
         void Load(EncounterList8[] arr, EncounterArchive arc, string name)
         {
             var table = arc.EncounterTables.FirstOrDefault(z => z.ZoneID == zone);
@@ -103,6 +154,62 @@ public sealed partial class SSWE : Form
             for (int i = subs.Count; i < arr.Length; i++)
                 arr[i].Visible = false;
         }
+    }
+
+    private void FitWindowToActiveTab()
+    {
+        if (sizingToContent || WindowState != FormWindowState.Normal)
+            return;
+
+        var tabContent = GetPreferredActiveTabContentSize();
+        var headerHeight = EnsureHeaderHeight();
+        var tabChromeWidth = TC_Types.DisplayRectangle.Left + Math.Max(0, TC_Types.Width - TC_Types.DisplayRectangle.Right);
+        var tabChromeHeight = TC_Types.DisplayRectangle.Top + Math.Max(0, TC_Types.Height - TC_Types.DisplayRectangle.Bottom);
+        var desiredWidth = Math.Max(GetPreferredHeaderWidth(), tabChromeWidth + tabContent.Width);
+        var desiredHeight = headerHeight + splitContainer1.SplitterWidth + tabChromeHeight + tabContent.Height;
+        var desiredClientSize = new Size(desiredWidth, desiredHeight);
+        var desiredWindowSize = SizeFromClientSize(desiredClientSize);
+
+        sizingToContent = true;
+        try
+        {
+            if (MinimumSize != desiredWindowSize)
+                MinimumSize = desiredWindowSize;
+            if (ClientSize != desiredClientSize)
+                ClientSize = desiredClientSize;
+        }
+        finally
+        {
+            sizingToContent = false;
+        }
+    }
+
+    private int EnsureHeaderHeight()
+    {
+        var headerHeight = new[] { CB_Location.Bottom, L_Hash.Bottom, B_Save.Bottom }.Max() + 10;
+        if (splitContainer1.SplitterDistance != headerHeight)
+            splitContainer1.SplitterDistance = headerHeight;
+        return headerHeight;
+    }
+
+    private Size GetPreferredActiveTabContentSize()
+    {
+        if (TC_Types.SelectedTab?.Controls.OfType<EncounterList8>().FirstOrDefault() is { } encounterList)
+            return encounterList.GetPreferredEditorSize();
+
+        var right = new[] { B_RandAll.Right, CHK_FillEmpty.Right, CHK_Level.Right, NUD_LevelBoost.Right, PG_Species.Right }.Max() + 16;
+        var bottom = PG_Species.Bottom + 16;
+        return new Size(right, bottom);
+    }
+
+    private int GetPreferredHeaderWidth()
+    {
+        const int locationWidth = 300;
+        const int gap = 24;
+        const int rightPadding = 12;
+        var hashWidth = TextRenderer.MeasureText(L_Hash.Text, L_Hash.Font).Width;
+        var width = CB_Location.Left + locationWidth + gap + hashWidth + gap + B_Save.Width + rightPadding;
+        return width;
     }
 
     private void SaveEntry(ulong zone)
@@ -131,13 +238,20 @@ public sealed partial class SSWE : Form
 
     private void B_Save_Click(object sender, EventArgs e)
     {
+        if (!ConfirmSave())
+            return;
+
         SaveEntry(entry);
         Modified = true;
+        CloseConfirmed = true;
         Close();
     }
 
     private void B_RandAll_Click(object sender, EventArgs e)
     {
+        if (!ConfirmRandomize())
+            return;
+
         SaveEntry(entry);
         var settings = (SpeciesSettings)PG_Species.SelectedObject!;
         var rand = new SpeciesRandomizer(ROM.Info, ROM.Data.PersonalData);
@@ -195,6 +309,38 @@ public sealed partial class SSWE : Form
         }
     }
 
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (!CloseConfirmed && e.CloseReason == CloseReason.UserClosing && !ConfirmCloseWithoutSaving())
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        base.OnFormClosing(e);
+    }
+
+    private bool ConfirmSave()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Save Wild Encounters",
+            "Save the current wild encounter changes?\n\nThis applies the edited encounter data to the loaded project. Closing without saving will discard this editor session.",
+            "Save");
+
+    private bool ConfirmRandomize()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Randomize Wild Encounters",
+            "Randomize wild encounter species with the current settings?\n\nThis can change many encounter slots at once. Review the results before saving, or close without saving to discard them.",
+            "Randomize");
+
+    private bool ConfirmCloseWithoutSaving()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Close Wild Editor",
+            "Close this editor without saving?\n\nAny changes made in this editor session will be discarded and the loaded project data will not be updated.",
+            "Close");
+
     public static readonly Dictionary<int, byte[]> RandomScaledRates = new()
     {
         [01] = [100],
@@ -203,39 +349,26 @@ public sealed partial class SSWE : Form
         [10] = [20, 15, 15, 10, 10, 10, 10, 5, 4, 1],
     };
 
-    private void TC_Tables_DrawItem(object sender, DrawItemEventArgs e)
+    private void TC_Tables_DrawItem(object? sender, DrawItemEventArgs e)
     {
-        var tc = (TabControl)sender;
-        Graphics g = e.Graphics;
+        if (sender is not TabControl tc)
+            return;
 
-        // Get the item from the collection.
-        TabPage _tabPage = tc.TabPages[e.Index];
+        var tabPage = tc.TabPages[e.Index];
+        var selected = e.Index == tc.SelectedIndex;
+        var tabBounds = tc.GetTabRect(e.Index);
+        var backgroundColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.AlternateRowBackground;
+        var textColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
-        // Get the real bounds for the tab rectangle.
-        Rectangle _tabBounds = tc.GetTabRect(e.Index);
+        using (var background = new SolidBrush(backgroundColor))
+            e.Graphics.FillRectangle(background, e.Bounds);
 
-        Brush _textBrush;
-        if (e.State == DrawItemState.Selected)
-        {
-            // Draw a different background color, and don't paint a focus rectangle.
-            _textBrush = new SolidBrush(Color.Red);
-            g.FillRectangle(Brushes.Beige, e.Bounds);
-        }
-        else
-        {
-            _textBrush = new SolidBrush(e.ForeColor);
-            e.DrawBackground();
-        }
-
-        // Use our own font.
-        Font _tabFont = new("Arial", (float)10.0, FontStyle.Bold, GraphicsUnit.Pixel);
-
-        // Draw string. Center the text.
-        StringFormat _stringFlags = new()
-        {
-            Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center,
-        };
-        g.DrawString(_tabPage.Text, _tabFont, _textBrush, _tabBounds, new StringFormat(_stringFlags));
+        TextRenderer.DrawText(
+            e.Graphics,
+            tabPage.Text,
+            tc.Font,
+            tabBounds,
+            textColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
     }
 }
