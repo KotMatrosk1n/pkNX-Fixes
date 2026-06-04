@@ -21,7 +21,7 @@ table EncounterUnderground {
     IV_HP:byte;
     IV_SPA:byte;
     IV_SPD:byte;
-    Ability:uint; // 1,2,4
+    Ability:uint; // 0 = Ability 1, 1 = Ability 2, 2 = Hidden; base data uses 0/1/2
     IsStoryProgressGated:bool; // Necrozma and Ultra Beasts available after completing all main quests
     Move0:uint;
     Move1:uint;

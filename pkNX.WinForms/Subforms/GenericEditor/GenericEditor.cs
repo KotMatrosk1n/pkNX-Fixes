@@ -133,10 +133,18 @@ public sealed partial class GenericEditor<T> : Form where T : class
         };
         CB_EntryName.DropDown += (_, _) =>
         {
+            var closeCustomDropDown = EntrySearchList?.Visible == true;
             BeginInvoke((MethodInvoker)(() =>
             {
                 CB_EntryName.DroppedDown = false;
-                ShowEntrySearchList(GetEntrySearchText());
+                if (closeCustomDropDown)
+                {
+                    HideEntrySearchList();
+                    CB_EntryName.Focus();
+                    return;
+                }
+
+                ShowEntryDropDownList();
             }));
         };
         CB_EntryName.SelectionChangeCommitted += (_, _) =>
@@ -356,7 +364,38 @@ public sealed partial class GenericEditor<T> : Form where T : class
         ShowEntrySearchList(text, GetEntryMatches(text).ToArray());
     }
 
-    private void ShowEntrySearchList(string text, IReadOnlyCollection<EntryComboEntry> matches)
+    private void ShowEntryDropDownList()
+    {
+        var text = GetEntryDropDownSearchText();
+        var matches = GetEntryMatches(text).ToArray();
+        var selectedIndex = text.Length == 0 ? GetSelectedEntryMatchIndex(matches) : 0;
+        ShowEntrySearchList(text, matches, selectedIndex);
+    }
+
+    private string GetEntryDropDownSearchText()
+    {
+        var text = CB_EntryName.Text.Trim();
+        var selectedIndex = GetSelectedEntryIndex();
+        if ((uint)selectedIndex < (uint)EntryEntries.Length &&
+            string.Equals(EntryEntries[selectedIndex].Text, text, StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+
+        return GetEntrySearchText();
+    }
+
+    private int GetSelectedEntryMatchIndex(IReadOnlyList<EntryComboEntry> matches)
+    {
+        var selectedIndex = GetSelectedEntryIndex();
+        for (var i = 0; i < matches.Count; i++)
+        {
+            if (matches[i].Index == selectedIndex)
+                return i;
+        }
+
+        return 0;
+    }
+
+    private void ShowEntrySearchList(string text, IReadOnlyList<EntryComboEntry> matches, int preferredSelectionIndex = 0)
     {
         if (EntrySearchList == null)
             return;
@@ -386,7 +425,9 @@ public sealed partial class GenericEditor<T> : Form where T : class
         EntrySearchList.Bounds = new Rectangle(location.X, location.Y, CB_EntryName.Width, height);
         EntrySearchList.Visible = true;
         EntrySearchList.BringToFront();
-        EntrySearchList.SelectedIndex = matches.Count > 0 ? 0 : -1;
+        var selectedIndex = Math.Clamp(preferredSelectionIndex, 0, matches.Count - 1);
+        EntrySearchList.SelectedIndex = selectedIndex;
+        EntrySearchList.TopIndex = Math.Clamp(selectedIndex - visibleRows / 2, 0, Math.Max(0, matches.Count - visibleRows));
     }
 
     private void HideEntrySearchList()

@@ -249,9 +249,15 @@ internal class EditorSWSH : EditorBase
         var nest_encounts = FlatBufferConverter.DeserializeFrom<EncounterNestArchive>(data_table.GetDataFileName(nest));
 
         var arr = nest_encounts.Table;
+        var raidTables = arr.ToArray();
         var cache = new DataCache<EncounterNestTable>(arr!);
-        var games = new[] { "Sword", "Shield" };
-        var names = arr.Select((z, i) => $"{games[z.GameVersion - 1]} - {i / 2}").ToArray();
+        RaidPropertyGridUtil.Configure(
+            raidTables,
+            [],
+            GetRewardTableIDs(data_table, "nest_hole_drop_rewards.bin"),
+            GetRewardTableIDs(data_table, "nest_hole_bonus_rewards.bin"),
+            GetRaidTableUsageLabels());
+        var names = raidTables.Select(RaidPropertyGridUtil.GetRaidTableName).ToArray();
 
         void Randomize()
         {
@@ -275,6 +281,95 @@ internal class EditorSWSH : EditorBase
                     p.IsGigantamax = false; // don't allow gmax flag on non-gmax species
                 }
             }
+        }
+
+        static ulong[] GetRewardTableIDs(GFPack dataTable, string fileName)
+        {
+            try
+            {
+                var rewards = FlatBufferConverter.DeserializeFrom<NestHoleRewardArchive>(dataTable.GetDataFileName(fileName));
+                return rewards.Table.Select(z => z.TableID).ToArray();
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        IReadOnlyDictionary<ulong, string> GetRaidTableUsageLabels()
+        {
+            const ulong EmptyHash = 0xCBF29CE484222645;
+
+            try
+            {
+                var placement = new GFPack(ROM.GetFile(GameFile.Placement)[0]);
+                var areaNames = new AHTB(placement.GetDataFileName("AreaNameHashTable.tbl")).ToDictionary();
+                var zoneNames = new AHTB(placement.GetDataFileName("ZoneNameHashTable.tbl")).ToDictionary();
+                var zoneDisplayNames = zoneNames.ToDictionary(
+                    zone => zone.Key,
+                    zone => SWSHInfo.Zones.TryGetValue(zone.Key, out var desc) ? $"{desc} [{zone.Value}]" : zone.Value);
+
+                var references = new Dictionary<ulong, List<(string Kind, string Zone, string Location)>>();
+                foreach (var area in areaNames.Values.OrderBy(z => z))
+                {
+                    var fileName = $"{area}.bin";
+                    if (placement.GetIndexFileName(fileName) < 0)
+                        continue;
+
+                    var archive = FlatBufferConverter.DeserializeFrom<PlacementZoneArchive>(placement.GetDataFileName(fileName));
+                    foreach (var zone in archive.Table)
+                    {
+                        var zoneName = zoneDisplayNames.TryGetValue(zone.Meta.ZoneID, out var displayName)
+                            ? displayName
+                            : zone.Meta.ZoneID.ToString("X16");
+
+                        foreach (var nest in zone.Nests)
+                        {
+                            var location = nest.Field00.Field00.Field00.Location3f;
+                            AddReference(nest.Common, "Common", zoneName, location);
+                            AddReference(nest.Rare, "Rare", zoneName, location);
+                        }
+                    }
+                }
+
+                return references.ToDictionary(z => z.Key, z => SummarizeRaidTableUsage(z.Value));
+
+                void AddReference(ulong tableID, string kind, string zone, string location)
+                {
+                    if (tableID is 0 or EmptyHash)
+                        return;
+
+                    if (!references.TryGetValue(tableID, out var list))
+                        references[tableID] = list = [];
+
+                    list.Add((kind, zone, location));
+                }
+            }
+            catch
+            {
+                return new Dictionary<ulong, string>();
+            }
+        }
+
+        static string SummarizeRaidTableUsage(IReadOnlyList<(string Kind, string Zone, string Location)> references)
+        {
+            var parts = references
+                .GroupBy(z => z.Kind)
+                .OrderBy(z => z.Key == "Common" ? 0 : 1)
+                .Select(z => $"{z.Key}: {SummarizeZones(z)}");
+            return string.Join("; ", parts);
+        }
+
+        static string SummarizeZones(IEnumerable<(string Kind, string Zone, string Location)> references)
+        {
+            var list = references.ToArray();
+            var zones = list.Select(z => z.Zone).Distinct().ToArray();
+            var summary = string.Join(", ", zones.Take(2));
+            if (zones.Length > 2)
+                summary += $", +{zones.Length - 2} zones";
+            if (list.Length > zones.Length)
+                summary += $" ({list.Length} dens)";
+            return summary;
         }
 
         using var form = new GenericEditor<EncounterNestTable>(cache, names, "Max Raid Battles Editor", Randomize);
@@ -772,7 +867,9 @@ internal class EditorSWSH : EditorBase
         var objs = FlatBufferConverter.DeserializeFrom<EncounterUndergroundArchive>(data);
 
         var table = objs.Table;
-        var names = Enumerable.Range(0, table.Count).Select(z => $"{z:000}").ToArray();
+        var speciesNames = ROM.GetStrings(TextName.SpeciesNames);
+        RaidPropertyGridUtil.ConfigureDynamaxAdventure(speciesNames, ROM.GetStrings(TextName.MoveNames));
+        var names = table.Select(RaidPropertyGridUtil.GetDynamaxAdventureName).ToArray();
         var cache = new DirectCache<EncounterUnderground>(table!);
 
         void Randomize()
@@ -786,12 +883,18 @@ internal class EditorSWSH : EditorBase
             var srand = new SpeciesRandomizer(ROM.Info, Data.PersonalData);
             var frand = new FormRandomizer(Data.PersonalData);
             srand.Initialize(spec, ban);
+            RaidAbilityRoll[] abilityRolls =
+            [
+                RaidAbilityRoll.Ability1,
+                RaidAbilityRoll.Ability2,
+                RaidAbilityRoll.HiddenAbility,
+            ];
             foreach (var t in table)
             {
                 // what you receive
                 t.Species = srand.GetRandomSpecies(t.Species);
                 t.Form = (byte)frand.GetRandomForm(t.Species, false, spec.AllowRandomFusions, ROM.Info.Generation, Data.PersonalData.Table);
-                t.Ability = (uint)Randomization.Util.Random.Next(1, 4); // 1, 2, or H
+                t.Ability = (uint)abilityRolls[Randomization.Util.Random.Next(abilityRolls.Length)];
                 t.Move0 = t.Move1 = t.Move2 = t.Move3 = 0;
             }
         }
