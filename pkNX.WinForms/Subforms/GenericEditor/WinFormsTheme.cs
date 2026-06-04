@@ -5,14 +5,15 @@ namespace pkNX.WinForms;
 
 public static class WinFormsTheme
 {
-    public static readonly Color WindowBackground = Color.FromArgb(51, 51, 51);
-    public static readonly Color PanelBackground = Color.FromArgb(64, 64, 64);
-    public static readonly Color InputBackground = Color.FromArgb(43, 43, 43);
-    public static readonly Color AlternateRowBackground = Color.FromArgb(55, 55, 55);
-    public static readonly Color Border = Color.FromArgb(118, 118, 118);
-    public static readonly Color Text = Color.White;
-    public static readonly Color MutedText = Color.FromArgb(220, 220, 220);
-    public static readonly Color SelectionBackground = Color.FromArgb(10, 100, 173);
+    public static readonly Color WindowBackground = Color.FromArgb(45, 46, 50);
+    public static readonly Color PanelBackground = Color.FromArgb(58, 60, 65);
+    public static readonly Color InputBackground = Color.FromArgb(37, 38, 42);
+    public static readonly Color AlternateRowBackground = Color.FromArgb(51, 53, 58);
+    public static readonly Color Border = Color.FromArgb(91, 94, 101);
+    public static readonly Color Text = Color.FromArgb(245, 246, 248);
+    public static readonly Color MutedText = Color.FromArgb(198, 203, 211);
+    public static readonly Color DisabledText = Color.FromArgb(142, 148, 158);
+    public static readonly Color SelectionBackground = Color.FromArgb(20, 111, 184);
     public static readonly Color SelectionText = Color.White;
 
     public static void Apply(Form form)
@@ -32,11 +33,37 @@ public static class WinFormsTheme
             case ComboBox comboBox:
                 Apply(comboBox);
                 break;
+            case TabControl tabControl:
+                Apply(tabControl);
+                break;
+            case TabPage tabPage:
+                tabPage.UseVisualStyleBackColor = false;
+                tabPage.BackColor = WindowBackground;
+                tabPage.ForeColor = Text;
+                break;
             case DataGridView dataGridView:
                 Apply(dataGridView);
                 break;
             case PropertyGrid propertyGrid:
                 Apply(propertyGrid);
+                break;
+            case ListBox listBox:
+                listBox.BackColor = InputBackground;
+                listBox.ForeColor = Text;
+                listBox.BorderStyle = BorderStyle.FixedSingle;
+                break;
+            case NumericUpDown numericUpDown:
+                numericUpDown.BackColor = InputBackground;
+                numericUpDown.ForeColor = Text;
+                break;
+            case CheckBox checkBox:
+                checkBox.UseVisualStyleBackColor = false;
+                checkBox.BackColor = WindowBackground;
+                checkBox.ForeColor = checkBox.Enabled ? Text : DisabledText;
+                break;
+            case GroupBox groupBox:
+                groupBox.BackColor = WindowBackground;
+                groupBox.ForeColor = Text;
                 break;
             case TextBoxBase textBox:
                 textBox.BackColor = InputBackground;
@@ -64,15 +91,45 @@ public static class WinFormsTheme
         button.BackColor = PanelBackground;
         button.ForeColor = Text;
         button.FlatAppearance.BorderColor = Border;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(72, 72, 72);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(80, 80, 80);
+        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(68, 71, 77);
+        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(75, 79, 86);
     }
 
     public static void Apply(ComboBox comboBox)
     {
         comboBox.BackColor = InputBackground;
         comboBox.ForeColor = Text;
-        comboBox.FlatStyle = FlatStyle.Popup;
+        comboBox.FlatStyle = FlatStyle.Flat;
+    }
+
+    public static void Apply(TabControl tabControl)
+    {
+        tabControl.BackColor = WindowBackground;
+        tabControl.ForeColor = Text;
+        tabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+        tabControl.DrawItem -= DrawTabItem;
+        tabControl.DrawItem += DrawTabItem;
+    }
+
+    private static void DrawTabItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not TabControl tabControl || (uint)e.Index >= (uint)tabControl.TabPages.Count)
+            return;
+
+        var tabPage = tabControl.TabPages[e.Index];
+        var selected = e.Index == tabControl.SelectedIndex;
+        var backColor = selected ? PanelBackground : WindowBackground;
+        var foreColor = selected ? Text : MutedText;
+
+        using var background = new SolidBrush(backColor);
+        e.Graphics.FillRectangle(background, e.Bounds);
+        TextRenderer.DrawText(
+            e.Graphics,
+            tabPage.Text,
+            tabControl.Font,
+            e.Bounds,
+            foreColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
     }
 
     public static void Apply(PropertyGrid grid)
