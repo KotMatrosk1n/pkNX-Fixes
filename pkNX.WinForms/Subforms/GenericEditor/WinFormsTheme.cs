@@ -61,6 +61,11 @@ public static class WinFormsTheme
                 checkBox.BackColor = WindowBackground;
                 checkBox.ForeColor = checkBox.Enabled ? Text : DisabledText;
                 break;
+            case RadioButton radioButton:
+                radioButton.UseVisualStyleBackColor = false;
+                radioButton.BackColor = WindowBackground;
+                radioButton.ForeColor = radioButton.Enabled ? Text : DisabledText;
+                break;
             case GroupBox groupBox:
                 groupBox.BackColor = WindowBackground;
                 groupBox.ForeColor = Text;
