@@ -4,7 +4,65 @@ public partial class EncounterStaticArchive;
 
 public partial class EncounterStatic
 {
-    public Species SpeciesID => (Species)Species;
+    public global::pkNX.Structures.Species SpeciesID
+    {
+        get => (global::pkNX.Structures.Species)Species;
+        set => Species = (int)value;
+    }
+
+    public int HeldItemID
+    {
+        get => HeldItem;
+        set => HeldItem = value;
+    }
+
+    public global::pkNX.Structures.Nature NatureID
+    {
+        get => (global::pkNX.Structures.Nature)Nature;
+        set => Nature = value == global::pkNX.Structures.Nature.Random ? (uint)global::pkNX.Structures.Nature.Random25 : (uint)value;
+    }
+
+    public StaticEncounterGender GenderType
+    {
+        get => (StaticEncounterGender)Gender;
+        set => Gender = (sbyte)value;
+    }
+
+    public StaticEncounterAbility AbilitySlot
+    {
+        get => (StaticEncounterAbility)Ability;
+        set => Ability = (int)value;
+    }
+
+    public global::pkNX.Structures.Shiny ShinyType
+    {
+        get => (global::pkNX.Structures.Shiny)ShinyLock;
+        set => ShinyLock = (uint)value;
+    }
+
+    public global::pkNX.Structures.Move MoveSlot1
+    {
+        get => (global::pkNX.Structures.Move)Move0;
+        set => Move0 = (int)value;
+    }
+
+    public global::pkNX.Structures.Move MoveSlot2
+    {
+        get => (global::pkNX.Structures.Move)Move1;
+        set => Move1 = (int)value;
+    }
+
+    public global::pkNX.Structures.Move MoveSlot3
+    {
+        get => (global::pkNX.Structures.Move)Move2;
+        set => Move2 = (int)value;
+    }
+
+    public global::pkNX.Structures.Move MoveSlot4
+    {
+        get => (global::pkNX.Structures.Move)Move3;
+        set => Move3 = (int)value;
+    }
 
     public int[] IVs
     {
@@ -63,4 +121,19 @@ public partial class EncounterStatic
         return
             $"            new(SWSH) {{ Species = {Species:000}, Level = {Level:00}, Location = -01{moves}{ivs}{shiny}{gender}{ability}{nature}{altform}{giga}{dyna} }},{comment}";
     }
+}
+
+public enum StaticEncounterGender
+{
+    Random = 0,
+    Male = 1,
+    Female = 2,
+}
+
+public enum StaticEncounterAbility
+{
+    Default = 0,
+    Ability1 = 1,
+    Ability2 = 2,
+    HiddenAbility = 3,
 }

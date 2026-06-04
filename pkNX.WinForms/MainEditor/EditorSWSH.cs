@@ -547,7 +547,11 @@ internal class EditorSWSH : EditorBase
         var objs = FlatBufferConverter.DeserializeFrom<EncounterStaticArchive>(data);
 
         var encounters = objs.Table;
-        var names = Enumerable.Range(0, encounters.Count).Select(z => $"{z:000}").ToArray();
+        pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
+        ShopItemNameFormatter.MoveNames = ROM.GetStrings(TextName.MoveNames);
+        ShopItemNameFormatter.MachineTable = Item8MachineTable.FromItemData(ROM[GameFile.ItemStats][0]);
+        StaticEncounterPropertyGridUtil.Configure(ROM.GetStrings(TextName.SpeciesNames), ROM.GetStrings(TextName.MoveNames));
+        var names = encounters.Select(StaticEncounterPropertyGridUtil.GetStaticEncounterName).ToArray();
         var cache = new DirectCache<Structures.FlatBuffers.SWSH.EncounterStatic>(encounters);
 
         void Randomize()
