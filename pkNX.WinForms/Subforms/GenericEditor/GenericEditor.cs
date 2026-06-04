@@ -69,7 +69,12 @@ public sealed partial class GenericEditor<T> : Form where T : class
         LoadIndex(index);
     }
 
-    private void LoadIndex(int index) => Grid.SelectedObject = Cache[index];
+    private void LoadIndex(int index)
+    {
+        var displayObject = ShopPropertyGridObjectFactory.Create(Cache[index]);
+        TypeRegistrationHelper.RegisterIListConvertersRecursively(displayObject.GetType());
+        Grid.SelectedObject = displayObject;
+    }
 
     private void B_Save_Click(object sender, EventArgs e)
     {
