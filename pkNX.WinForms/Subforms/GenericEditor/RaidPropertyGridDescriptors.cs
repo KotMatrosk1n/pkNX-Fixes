@@ -240,7 +240,7 @@ public static class RaidPropertyGridUtil
             "Form" => "Form index for the selected species. Zero is the default form.",
             "Level" => "Encounter level.",
             "BallID" => "Ball shown/stored for this Dynamax Adventures Pokemon. Base data uses Poke Ball for all entries.",
-            "AbilitySlot" => "Ability behavior. Base data uses Default, Ability 1, and Ability 2.",
+            "AbilitySlot" => "Ability roll. Base Dynamax Adventures data uses Ability 1, Ability 2, and Hidden Ability. Ability 1/2 and Any are known raid roll values but are not used by the base Dynamax Adventures table.",
             "Gigantamax" => "Whether this encounter uses its normal Dynamax-capable form or Gigantamax form.",
             "GameVersion" => "Version restriction for this entry. Both means Sword and Shield.",
             "ShinyRoll" => "Observed as Enabled for all base Dynamax Adventures entries. Other values are not fully confirmed.",

@@ -16,15 +16,9 @@ public partial class EncounterUnderground
         set => Ball = (uint)value;
     }
 
-    public DynamaxAdventureAbility AbilitySlot
+    public RaidAbilityRoll AbilitySlot
     {
-        get => Ability switch
-        {
-            1 => DynamaxAdventureAbility.Ability1,
-            2 => DynamaxAdventureAbility.Ability2,
-            4 => DynamaxAdventureAbility.HiddenAbility,
-            _ => DynamaxAdventureAbility.Default,
-        };
+        get => (RaidAbilityRoll)Ability;
         set => Ability = (uint)value;
     }
 
@@ -90,14 +84,6 @@ public partial class EncounterUnderground
         var g = IsGigantamax ? ", CanGigantamax = true" : "";
         return $"            new({Species:000},{Form},{Level:00}) {{ Ability = A{Ability}{gender}{moves}{g}{game} }},{comment}";
     }
-}
-
-public enum DynamaxAdventureAbility : uint
-{
-    Default = 0,
-    Ability1 = 1,
-    Ability2 = 2,
-    HiddenAbility = 4,
 }
 
 public enum DynamaxAdventureGigantamaxState : uint

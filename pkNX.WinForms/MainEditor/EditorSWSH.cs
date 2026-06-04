@@ -883,13 +883,18 @@ internal class EditorSWSH : EditorBase
             var srand = new SpeciesRandomizer(ROM.Info, Data.PersonalData);
             var frand = new FormRandomizer(Data.PersonalData);
             srand.Initialize(spec, ban);
-            uint[] abilityRolls = [0, 1, 2];
+            RaidAbilityRoll[] abilityRolls =
+            [
+                RaidAbilityRoll.Ability1,
+                RaidAbilityRoll.Ability2,
+                RaidAbilityRoll.HiddenAbility,
+            ];
             foreach (var t in table)
             {
                 // what you receive
                 t.Species = srand.GetRandomSpecies(t.Species);
                 t.Form = (byte)frand.GetRandomForm(t.Species, false, spec.AllowRandomFusions, ROM.Info.Generation, Data.PersonalData.Table);
-                t.Ability = abilityRolls[Randomization.Util.Random.Next(abilityRolls.Length)];
+                t.Ability = (uint)abilityRolls[Randomization.Util.Random.Next(abilityRolls.Length)];
                 t.Move0 = t.Move1 = t.Move2 = t.Move3 = 0;
             }
         }
