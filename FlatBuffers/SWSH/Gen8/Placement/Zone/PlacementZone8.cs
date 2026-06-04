@@ -2,7 +2,7 @@ namespace pkNX.Structures.FlatBuffers.SWSH;
 
 public partial class PlacementZone
 {
-    public override string ToString() => Meta.ZoneID.ToString("X16");
+    public override string ToString() => PlacementZoneLabelProvider.Zone(Meta.ZoneID);
 
     // More tables exist here
 
@@ -73,12 +73,17 @@ public partial class PlacementZone
 
 public partial class PlacementZoneMeta
 {
-    public override string ToString() => $"{Field00.HashObjectName:X16}";
+    public override string ToString()
+    {
+        var zone = PlacementZoneLabelProvider.Zone(ZoneID);
+        var anchor = PlacementZoneLabelProvider.Object(Field00.HashObjectName);
+        return $"{zone} / {anchor} @ {Field00.Location3f}";
+    }
 }
 
 public partial class PlacementZoneMetaTripleXYZ
 {
-    public string Location3f => $"({LocationX}, {LocationY}, {LocationZ})";
+    public string Location3f => PlacementZoneLabelProvider.Location(LocationX, LocationY, LocationZ);
 
     public void Upscale(float factor)
     {
@@ -89,5 +94,5 @@ public partial class PlacementZoneMetaTripleXYZ
 
     public void ResetScale() => ScaleX = ScaleY = ScaleZ = 1;
 
-    public override string ToString() => $"{HashObjectName:X16} @ {Location3f}";
+    public override string ToString() => $"{PlacementZoneLabelProvider.Object(HashObjectName)} @ {Location3f}";
 }

@@ -52,28 +52,22 @@ public static class TypeRegistrationHelper
                 return;
         }
 
-        var registeredProvider = IsShopType(type);
+        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type);
         if (registeredProvider)
             AddProvider(type);
 
-        // Check each public instance property.
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             var propType = prop.PropertyType;
 
-            // Is it a generic type and exactly an IList<>
-            if (propType.IsGenericType && propType.GetGenericTypeDefinition() == typeof(IList<>))
+            if (TryGetListElementType(propType, out var elementType))
             {
                 if (!registeredProvider)
                 {
-                    // For this type, add our custom provider that overrides the IList property converter.
-                    // (The provider itself will decide which property to wrap based on its name or other criteria.)
                     AddProvider(type);
                     registeredProvider = true;
                 }
 
-                // Also, register for the element type in case it in turn contains IList<> properties.
-                var elementType = propType.GetGenericArguments()[0];
                 if (elementType.IsClass && elementType != typeof(string))
                     RegisterIListConvertersRecursively(elementType);
             }
@@ -109,6 +103,26 @@ public static class TypeRegistrationHelper
             "pkNX.Structures.FlatBuffers.SWSH.Inventory" or
             "pkNX.WinForms.ShopInventoryPropertyGridObject";
     }
+
+    public static bool TryGetListElementType(Type type, out Type elementType)
+    {
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IList<>))
+        {
+            elementType = type.GetGenericArguments()[0];
+            return true;
+        }
+
+        var listInterface = type.GetInterfaces()
+            .FirstOrDefault(z => z.IsGenericType && z.GetGenericTypeDefinition() == typeof(IList<>));
+        if (listInterface != null)
+        {
+            elementType = listInterface.GetGenericArguments()[0];
+            return true;
+        }
+
+        elementType = typeof(object);
+        return false;
+    }
 }
 public class DynamicListTypeDescriptionProvider(Type type)
     : TypeDescriptionProvider(TypeDescriptor.GetProvider(type))
@@ -142,16 +156,12 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
 
             // Check if this is our target property.
             // For example, check by name or by type.
-            var type = pd.PropertyType;
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IList<>))
-            {
-                // Wrap the property descriptor with one that supplies a custom type converter.
+            if (TypeRegistrationHelper.TryGetListElementType(pd.PropertyType, out _))
                 newProps.Add(new DynamicListPropertyDescriptor(pd));
-            }
+            else if (PlacementPropertyGridUtil.IsPlacementType(objectType))
+                newProps.Add(new PlacementPropertyDescriptor(pd));
             else
-            {
                 newProps.Add(pd);
-            }
         }
 
         return new PropertyDescriptorCollection(newProps.ToArray(), true);
@@ -166,6 +176,9 @@ public class DynamicListPropertyDescriptor(PropertyDescriptor baseDescriptor)
     public override object? GetValue(object? component) => baseDescriptor.GetValue(component);
     public override bool IsReadOnly => baseDescriptor.IsReadOnly;
     public override Type PropertyType => baseDescriptor.PropertyType;
+    public override string DisplayName => PlacementPropertyGridUtil.IsPlacementType(ComponentType)
+        ? PlacementPropertyGridUtil.GetDisplayName(ComponentType, Name, PropertyType)
+        : baseDescriptor.DisplayName;
     public override void ResetValue(object component) => baseDescriptor.ResetValue(component);
     public override void SetValue(object? component, object? value) => baseDescriptor.SetValue(component, value);
     public override bool ShouldSerializeValue(object component) => baseDescriptor.ShouldSerializeValue(component);
@@ -183,22 +196,17 @@ public class DynamicListPropertyDescriptor(PropertyDescriptor baseDescriptor)
         if (baseDescriptor.Name != "Items" || !TypeRegistrationHelper.IsShopInventory(baseDescriptor.ComponentType))
             return false;
 
-        var type = baseDescriptor.PropertyType;
-        return type.IsGenericType &&
-            type.GetGenericTypeDefinition() == typeof(IList<>) &&
-            type.GetGenericArguments()[0] == typeof(int);
+        return TypeRegistrationHelper.TryGetListElementType(baseDescriptor.PropertyType, out var elementType) &&
+            elementType == typeof(int);
     }
 
     public override TypeConverter Converter
     {
         get
         {
-            // Get the element type (T) from IList<T>
-            var elementType = PropertyType.GetGenericArguments().FirstOrDefault();
-            if (elementType == null)
+            if (!TypeRegistrationHelper.TryGetListElementType(PropertyType, out var elementType))
                 return baseDescriptor.Converter;
 
-            // Create an instance of our custom converter, e.g. ListTypeConverter<T>.
             var converterType = typeof(ListTypeConverter<>).MakeGenericType(elementType);
             if (Activator.CreateInstance(converterType, baseDescriptor) is TypeConverter converter)
                 return converter;
@@ -210,12 +218,16 @@ public class DynamicListPropertyDescriptor(PropertyDescriptor baseDescriptor)
 public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : ExpandableObjectConverter
 {
     private readonly bool IsShopItemList = IsShopItemListProperty(listDescriptor);
+    private readonly bool IsPlacementList = IsPlacementListProperty(listDescriptor);
     private readonly TypeConverter ElementConverter = GetElementConverter(listDescriptor);
 
     private static TypeConverter GetElementConverter(PropertyDescriptor listDescriptor)
     {
         if (IsShopItemListProperty(listDescriptor))
             return new ItemConverter();
+
+        if (IsPlacementFieldItemHashListProperty(listDescriptor))
+            return new PlacementItemHashConverter();
 
         return TypeDescriptor.GetConverter(typeof(T));
     }
@@ -225,6 +237,19 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
         return typeof(T) == typeof(int) &&
             listDescriptor.Name == "Items" &&
             TypeRegistrationHelper.IsShopInventory(listDescriptor.ComponentType);
+    }
+
+    private static bool IsPlacementListProperty(PropertyDescriptor listDescriptor)
+    {
+        var fullName = listDescriptor.ComponentType.FullName;
+        return fullName?.StartsWith("pkNX.Structures.FlatBuffers.SWSH.PlacementZone", StringComparison.Ordinal) == true;
+    }
+
+    private static bool IsPlacementFieldItemHashListProperty(PropertyDescriptor listDescriptor)
+    {
+        return typeof(T) == typeof(ulong) &&
+            listDescriptor.Name == "Flags" &&
+            PlacementPropertyGridUtil.IsSpecificPlacementType(listDescriptor.ComponentType, "PlacementZoneFieldItem");
     }
 
     public override bool GetPropertiesSupported(ITypeDescriptorContext? context)
@@ -239,13 +264,35 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
 
     public override object? ConvertTo(ITypeDescriptorContext? context, System.Globalization.CultureInfo? culture, object? value, Type destinationType)
     {
-        if (destinationType == typeof(string) && value is IEnumerable<T> list)
-            return string.Join(", ", list.Select(item => ConvertItemToString(context, culture, item)));
+        if (destinationType == typeof(string))
+        {
+            var items = EnumerateItems(value)?.ToArray();
+            if (items != null)
+            {
+                if (items.Length == 0)
+                    return "Empty";
+
+                var maxItems = IsPlacementList ? 2 : items.Length;
+                var summary = string.Join(", ", items.Take(maxItems).Select(item => ConvertItemToString(context, culture, item)));
+                return IsPlacementList && items.Length > maxItems ? $"{summary}, ... ({items.Length} total)" : summary;
+            }
+        }
 
         return base.ConvertTo(context, culture, value, destinationType);
     }
 
-    private string ConvertItemToString(ITypeDescriptorContext? context, System.Globalization.CultureInfo? culture, T? item)
+    private static IEnumerable<object?>? EnumerateItems(object? value)
+    {
+        if (value is IEnumerable<T> typed)
+            return typed.Cast<object?>();
+
+        if (value is System.Collections.IEnumerable enumerable and not string)
+            return enumerable.Cast<object?>();
+
+        return null;
+    }
+
+    private string ConvertItemToString(ITypeDescriptorContext? context, System.Globalization.CultureInfo? culture, object? item)
     {
         if (item is null)
             return string.Empty;
@@ -253,8 +300,8 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
         if (IsShopItemList && item is int itemID)
             return ShopItemNameFormatter.GetDisplayName(itemID);
 
-        if (ElementConverter.CanConvertTo(context, typeof(string)))
-            return ElementConverter.ConvertToString(context, culture, item) ?? string.Empty;
+        if (item is T typedItem && ElementConverter.CanConvertTo(context, typeof(string)))
+            return ElementConverter.ConvertToString(context, culture, typedItem) ?? string.Empty;
 
         return item.ToString() ?? string.Empty;
     }

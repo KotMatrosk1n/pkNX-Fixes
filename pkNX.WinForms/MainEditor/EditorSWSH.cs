@@ -835,6 +835,18 @@ internal class EditorSWSH : EditorBase
         var arc = ROM.GetFile(GameFile.Placement);
         var placement = new GFPack(arc[0]);
         var area_names = new AHTB(placement.GetDataFileName("AreaNameHashTable.tbl")).ToDictionary();
+        var zone_names = new AHTB(placement.GetDataFileName("ZoneNameHashTable.tbl")).ToDictionary();
+        var object_names = new AHTB(placement.GetDataFileName("ObjectNameHashTable.tbl")).ToDictionary();
+        var vanish_flags = TryGetPlacementHashTable(placement, "VanishFlagAutoTable.tbl");
+        var zoneDisplayNames = zone_names.ToDictionary(
+            z => z.Key,
+            z => SWSHInfo.Zones.TryGetValue(z.Key, out var description) ? $"{description} [{z.Value}]" : z.Value);
+        foreach (var zone in SWSHInfo.Zones)
+            zoneDisplayNames.TryAdd(zone.Key, zone.Value);
+        var itemDisplayNames = GetPlacementItemDisplayNames();
+        var staticSpawnDisplayNames = GetPlacementStaticSpawnDisplayNames();
+        var hashDisplayNames = GetPlacementHashDisplayNames(area_names, zoneDisplayNames, object_names, itemDisplayNames, staticSpawnDisplayNames, vanish_flags);
+        PlacementZoneLabelProvider.Configure(zoneDisplayNames, object_names, itemDisplayNames, staticSpawnDisplayNames, hashDisplayNames);
 
         List<PlacementZoneArchive> areas = [];
         List<string> names = [];
@@ -860,6 +872,7 @@ internal class EditorSWSH : EditorBase
         var nameArr = names.ToArray();
         var cache = new DataCache<PlacementZoneArchive>(arr);
         var form = new GenericEditor<PlacementZoneArchive>(cache, nameArr, "Placement", Randomize, canSave: true);
+        form.ConfigurePlacementZoneNames(zoneDisplayNames);
         form.ShowDialog();
         if (!form.Modified)
             return;
@@ -923,6 +936,62 @@ internal class EditorSWSH : EditorBase
                 placement.SetDataFileName(nameArr[i], bin);
             }
             arc[0] = placement.Write();
+        }
+
+        IReadOnlyDictionary<ulong, string> GetPlacementItemDisplayNames()
+        {
+            var itemNames = ROM.GetStrings(TextName.ItemNames);
+            var itemHashTableData = ROM.GetFile(GameFile.ItemHash)[0];
+            var hashes = ItemHash8.GetItemHashTable(itemHashTableData);
+            return hashes
+                .Where(z => (uint)z.Key < (uint)itemNames.Length)
+                .GroupBy(z => z.Value)
+                .ToDictionary(
+                    z => z.Key,
+                    z =>
+                    {
+                        var itemID = z.First().Key;
+                        var name = itemNames[itemID];
+                        return string.IsNullOrWhiteSpace(name) ? $"Item {itemID}" : $"{name} ({itemID})";
+                    });
+        }
+
+        IReadOnlyDictionary<ulong, string> GetPlacementStaticSpawnDisplayNames()
+        {
+            var speciesNames = ROM.GetStrings(TextName.SpeciesNames);
+            var data = ROM.GetFile(GameFile.EncounterTableStatic)[0];
+            var statics = FlatBufferConverter.DeserializeFrom<EncounterStaticArchive>(data).Table;
+            return statics
+                .GroupBy(z => z.EncounterID)
+                .ToDictionary(z => z.Key, z =>
+                {
+                    var encounter = z.First();
+                    var species = (uint)encounter.Species < (uint)speciesNames.Length
+                        ? speciesNames[encounter.Species]
+                        : ((Species)encounter.Species).ToString();
+                    var form = encounter.Form == 0 ? string.Empty : $"-{encounter.Form}";
+                    return $"{species}{form} Lv. {encounter.Level} ({encounter.EncounterID:X16})";
+                });
+        }
+
+        static IReadOnlyDictionary<ulong, string> TryGetPlacementHashTable(GFPack placement, string fileName)
+        {
+            if (placement.GetIndexFileName(fileName) < 0)
+                return new Dictionary<ulong, string>();
+
+            return new AHTB(placement.GetDataFileName(fileName)).ToDictionary();
+        }
+
+        static IReadOnlyDictionary<ulong, string> GetPlacementHashDisplayNames(params IReadOnlyDictionary<ulong, string>[] sources)
+        {
+            var result = new Dictionary<ulong, string>();
+            foreach (var source in sources)
+            {
+                foreach (var (hash, name) in source)
+                    result[hash] = name;
+            }
+
+            return result;
         }
     }
 }

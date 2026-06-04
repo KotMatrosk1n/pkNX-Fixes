@@ -159,6 +159,6 @@ public partial class PlacementZoneOtherNPCHolder
         var ident = Field00.Field00.Identifier;
         var hashModel = Field00.Field00.HashModel;
         var name = Models.TryGetValue(hashModel, out var model) ? model : hashModel.ToString("X16");
-        return $"{name}: {ident.HashObjectName:X16} v{ModelVariant} @ {ident.Location3f}";
+        return $"{name}: {PlacementZoneLabelProvider.Object(ident.HashObjectName)} v{ModelVariant} @ {ident.Location3f}";
     }
 }

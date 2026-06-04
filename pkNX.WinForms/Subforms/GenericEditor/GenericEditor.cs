@@ -13,9 +13,15 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private string[] Names;
     private DataCache<T> Cache;
     private readonly ShopTableView ShopTable = new();
+    private readonly PlacementTableView PlacementTable = new();
     private readonly Size OriginalMinimumSize;
     private bool CloseConfirmed;
     public bool Modified { get; set; }
+
+    public void ConfigurePlacementZoneNames(IReadOnlyDictionary<ulong, string> zoneNames)
+    {
+        PlacementTable.ZoneNames = zoneNames;
+    }
 
     public GenericEditor(DataCache<T> Cache, string[] names, string title, Action? randomizeCallback = null, Action? addEntryCallback = null, bool canSave = true)
         : this(_ => Cache, (_, i) => names[i], title, _ => randomizeCallback?.Invoke(), addEntryCallback, canSave)
@@ -29,6 +35,9 @@ public sealed partial class GenericEditor<T> : Form where T : class
         ContentPanel.Controls.Add(ShopTable);
         ShopTable.Visible = false;
         ShopTable.BringToFront();
+        ContentPanel.Controls.Add(PlacementTable);
+        PlacementTable.Visible = false;
+        PlacementTable.BringToFront();
 
         TypeRegistrationHelper.RegisterIListConvertersRecursively(typeof(T));
         Text = title;
@@ -95,13 +104,26 @@ public sealed partial class GenericEditor<T> : Form where T : class
         {
             Grid.SelectedObject = null;
             Grid.Visible = false;
+            PlacementTable.Visible = false;
             ShopTable.Visible = true;
             ShopTable.LoadShop(value);
             ShopTable.BringToFront();
             return;
         }
 
+        if (PlacementTableView.Supports(value))
+        {
+            Grid.SelectedObject = null;
+            Grid.Visible = false;
+            ShopTable.Visible = false;
+            PlacementTable.Visible = true;
+            PlacementTable.LoadArchive(value);
+            PlacementTable.BringToFront();
+            return;
+        }
+
         ShopTable.Visible = false;
+        PlacementTable.Visible = false;
         Grid.Visible = true;
         var displayObject = ShopPropertyGridObjectFactory.Create(value);
         TypeRegistrationHelper.RegisterIListConvertersRecursively(displayObject.GetType());
@@ -112,8 +134,9 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private void UpdateShopEditorMinimumSize()
     {
         var isShopEditor = Cache.Length > 0 && ShopTableView.Supports(Cache[0]);
-        MinimumSize = isShopEditor
-            ? new Size(Math.Max(OriginalMinimumSize.Width, 900), OriginalMinimumSize.Height)
+        var isPlacementEditor = Cache.Length > 0 && PlacementTableView.Supports(Cache[0]);
+        MinimumSize = isShopEditor || isPlacementEditor
+            ? new Size(Math.Max(OriginalMinimumSize.Width, isPlacementEditor ? 1120 : 900), OriginalMinimumSize.Height)
             : OriginalMinimumSize;
     }
 
