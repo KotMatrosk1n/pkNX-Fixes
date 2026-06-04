@@ -286,7 +286,7 @@ public partial class Main : Form
 
         CenterToScreen();
 
-        Text = $"{nameof(pkNX)} - {Editor.Game}";
+        Text = Branding.WindowTitle(Editor.Game);
         TB_Path.Text = Editor.Location;
         Menu_Current.Enabled = true;
         EditUtil.LoadSettings(Editor.Game);
