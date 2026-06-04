@@ -14,6 +14,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private DataCache<T> Cache;
     private readonly ShopTableView ShopTable = new();
     private readonly Size OriginalMinimumSize;
+    private bool CloseConfirmed;
     public bool Modified { get; set; }
 
     public GenericEditor(DataCache<T> Cache, string[] names, string title, Action? randomizeCallback = null, Action? addEntryCallback = null, bool canSave = true)
@@ -32,6 +33,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         TypeRegistrationHelper.RegisterIListConvertersRecursively(typeof(T));
         Text = title;
         WinFormsTheme.Apply(this);
+        FormClosing += GenericEditor_FormClosing;
 
         Cache = loadCache(this);
         Names = Cache.LoadAll().Select(nameSelector).ToArray();
@@ -48,6 +50,9 @@ public sealed partial class GenericEditor<T> : Form where T : class
             B_Rand.Visible = true;
             B_Rand.Click += (_, __) =>
             {
+                if (!ConfirmRandomize())
+                    return;
+
                 randomizeCallback(Cache.LoadAll());
                 LoadIndex(0);
                 System.Media.SystemSounds.Asterisk.Play();
@@ -114,18 +119,64 @@ public sealed partial class GenericEditor<T> : Form where T : class
 
     private void B_Save_Click(object sender, EventArgs e)
     {
+        if (!ConfirmSave())
+            return;
+
         if (Grid.Visible)
             LoadIndex(0);
 
         Modified = true;
+        CloseConfirmed = true;
         Close();
     }
 
     private void B_Dump_Click(object sender, EventArgs e)
     {
+        if (!ConfirmDump())
+            return;
+
         var arr = Cache.LoadAll();
         var result = TableUtil.GetNamedTypeTable(arr, Names, Text.Split(' ')[0]);
         Clipboard.SetText(result);
         System.Media.SystemSounds.Asterisk.Play();
     }
+
+    private void GenericEditor_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (CloseConfirmed || e.CloseReason != CloseReason.UserClosing)
+            return;
+
+        if (ConfirmCloseWithoutSaving())
+            return;
+
+        e.Cancel = true;
+    }
+
+    private bool ConfirmSave()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Save Changes",
+            "Save the current editor changes?\n\nThis applies the edited data to the loaded project. Closing without saving will discard this editor session.",
+            "Save");
+
+    private bool ConfirmDump()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Dump Editor Data",
+            "Dump the current editor data to the clipboard?\n\nThis replaces your current clipboard contents. It does not save or apply changes to the project.",
+            "Dump");
+
+    private bool ConfirmRandomize()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Randomize Entries",
+            "Randomize this editor's entries?\n\nThis can change many values at once. Review the results before saving, or close without saving to discard them.",
+            "Randomize");
+
+    private bool ConfirmCloseWithoutSaving()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Close Editor",
+            "Close this editor without saving?\n\nAny changes made in this editor session will be discarded and the loaded project data will not be updated.",
+            "Close");
 }
