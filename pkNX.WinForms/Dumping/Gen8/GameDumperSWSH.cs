@@ -220,8 +220,8 @@ public class GameDumperSWSH(GameManagerSWSH rom)
                 t.Self.Class = 1;
 
             result.Add($"{i:000} - {trc[t.Self.Class]}: {trn[i]}");
-            const int MoneyScalar = 80;
-            result.Add($"AI: {t.Self.AI} | Mode: {t.Self.Mode} | Money: {t.Self.Money * MoneyScalar}");
+            var payout = GetTrainerPayout(t.Team, t.Self.Money);
+            result.Add($"AI: {t.Self.AI} | Mode: {t.Self.Mode} | Money Rate: {t.Self.Money} | Payout: {payout}");
             result.Add($"Pokémon Count: {t.Self.NumPokemon}");
 
             result.Add("---");
@@ -242,6 +242,13 @@ public class GameDumperSWSH(GameManagerSWSH rom)
 
         var outname = GetPath("trparse.txt");
         File.WriteAllLines(outname, result);
+
+        static int GetTrainerPayout(IReadOnlyList<TrainerPoke> team, int rate)
+        {
+            if (rate == 0 || team.Count == 0)
+                return 0;
+            return team.Max(z => z.Level) * rate * 4;
+        }
     }
 
     public void DumpBattleTower()

@@ -57,6 +57,14 @@ public class TrainerEditor : IDataEditor
             TrainerData[i] = data.Self.Write();
             TrainerPoke[i] = data.Team.SelectMany(z => z.Write()).ToArray();
         }
+
+        for (int i = 0; i < Math.Min(CacheClass.Length, TrainerClass.Count); i++)
+        {
+            var data = CacheClass[i];
+            if (data == null)
+                continue;
+            TrainerClass[i] = data.Write();
+        }
     }
 
     public VsTrainer[] LoadAll()
@@ -74,5 +82,6 @@ public class TrainerEditor : IDataEditor
     {
         TrainerData.CancelEdits();
         TrainerPoke.CancelEdits();
+        TrainerClass.CancelEdits();
     }
 }
