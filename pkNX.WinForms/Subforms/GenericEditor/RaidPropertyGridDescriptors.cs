@@ -16,6 +16,8 @@ public static class RaidPropertyGridUtil
     private static readonly Dictionary<ulong, string> LevelTableLabels = [];
     private static readonly Dictionary<ulong, string> DropRewardTableLabels = [];
     private static readonly Dictionary<ulong, string> BonusRewardTableLabels = [];
+    private static readonly Dictionary<ulong, string> RewardTableUsageLabels = [];
+    private static bool RewardEditorUsesQuantities;
     private static string[] DynamaxAdventureSpeciesNames = [];
     private static string[] DynamaxAdventureMoveNames = [];
 
@@ -60,6 +62,18 @@ public static class RaidPropertyGridUtil
         DynamaxAdventureMoveNames = moveNames.ToArray();
     }
 
+    public static void ConfigureRewardEditor(bool usesQuantities, IReadOnlyDictionary<ulong, string>? rewardTableUsageLabels = null)
+    {
+        RewardEditorUsesQuantities = usesQuantities;
+        RewardTableUsageLabels.Clear();
+
+        if (rewardTableUsageLabels == null)
+            return;
+
+        foreach (var (tableID, label) in rewardTableUsageLabels)
+            RewardTableUsageLabels[tableID] = label;
+    }
+
     public static string GetDynamaxAdventureName(EncounterUnderground encounter, int index)
     {
         var species = GetIndexedName(DynamaxAdventureSpeciesNames, encounter.Species);
@@ -73,6 +87,13 @@ public static class RaidPropertyGridUtil
         return $"{index:000} - {species}{form}{version}";
     }
 
+    public static string GetRewardTableName(NestHoleRewardTable table, int index)
+    {
+        var kind = RewardEditorUsesQuantities ? "Bonus" : "Drop";
+        var usage = RewardTableUsageLabels.TryGetValue(table.TableID, out var label) ? $" | {label}" : string.Empty;
+        return $"{kind} {index:000}{usage}";
+    }
+
     private static string GetRaidTableIDLabel(EncounterNestTable table, int index) => $"Den Table {index / 2}{GetUsageSuffix(table.TableID)}";
 
     private static string GetUsageSuffix(ulong tableID) => EncounterTableUsageLabels.TryGetValue(tableID, out var label) ? $" | {label}" : string.Empty;
@@ -83,9 +104,13 @@ public static class RaidPropertyGridUtil
 
     public static bool IsDynamaxAdventure(Type type) => typeof(EncounterUnderground).IsAssignableFrom(type) || type.Name == "EncounterUnderground";
 
+    public static bool IsRewardTable(Type type) => typeof(NestHoleRewardTable).IsAssignableFrom(type) || type.Name == "NestHoleRewardTable";
+
+    public static bool IsRewardEntry(Type type) => typeof(NestHoleReward).IsAssignableFrom(type) || type.Name == "NestHoleReward";
+
     public static bool IsRaidType(Type type)
     {
-        return IsEncounterNestTable(type) || IsEncounterNest(type) || IsDynamaxAdventure(type);
+        return IsEncounterNestTable(type) || IsEncounterNest(type) || IsDynamaxAdventure(type) || IsRewardTable(type) || IsRewardEntry(type);
     }
 
     public static bool ShouldHide(Type componentType, string propertyName)
@@ -95,6 +120,12 @@ public static class RaidPropertyGridUtil
 
         if (IsEncounterNestTable(componentType))
             return propertyName is "GameVersion";
+
+        if (IsRewardTable(componentType))
+            return propertyName is "Rewards";
+
+        if (IsRewardEntry(componentType))
+            return propertyName is "Item" or "Values";
 
         return IsEncounterNest(componentType) && propertyName is
             "Ability" or
@@ -132,6 +163,32 @@ public static class RaidPropertyGridUtil
                 "Version" => "Game Version",
                 "EntryCount" => "Raid Slot Count",
                 "Entries" => "Raid Slots",
+                _ => propertyName,
+            };
+        }
+
+        if (IsRewardTable(componentType))
+        {
+            return propertyName switch
+            {
+                "TableID" => "Internal ID",
+                "EntryCount" => "Reward Count",
+                "Entries" => "Reward Entries",
+                _ => propertyName,
+            };
+        }
+
+        if (IsRewardEntry(componentType))
+        {
+            return propertyName switch
+            {
+                "EntryID" => "Reward Index",
+                "ItemID" => "Item",
+                "Star1Value" => GetRewardValueLabel(1),
+                "Star2Value" => GetRewardValueLabel(2),
+                "Star3Value" => GetRewardValueLabel(3),
+                "Star4Value" => GetRewardValueLabel(4),
+                "Star5Value" => GetRewardValueLabel(5),
                 _ => propertyName,
             };
         }
@@ -208,6 +265,32 @@ public static class RaidPropertyGridUtil
             };
         }
 
+        if (IsRewardTable(componentType))
+        {
+            return propertyName switch
+            {
+                "TableID" => "Internal reward table hash. Raid slots reference this value through their drop or bonus reward table field; changing it without updating those slots can disconnect the table.",
+                "EntryCount" => "Number of reward entries in this table.",
+                "Entries" => "Rewards that can be granted by this table.",
+                _ => string.Empty,
+            };
+        }
+
+        if (IsRewardEntry(componentType))
+        {
+            return propertyName switch
+            {
+                "EntryID" => "Index of this reward entry inside the table. Base data normally keeps this aligned with the row order.",
+                "ItemID" => "Item awarded by this reward entry.",
+                "Star1Value" => GetRewardValueDescription(1),
+                "Star2Value" => GetRewardValueDescription(2),
+                "Star3Value" => GetRewardValueDescription(3),
+                "Star4Value" => GetRewardValueDescription(4),
+                "Star5Value" => GetRewardValueDescription(5),
+                _ => string.Empty,
+            };
+        }
+
         if (IsEncounterNest(componentType))
         {
             return propertyName switch
@@ -267,6 +350,19 @@ public static class RaidPropertyGridUtil
         if (IsEncounterNestTable(componentType))
             return propertyName is "Entries" ? "Raid Slots" : "Table";
 
+        if (IsRewardTable(componentType))
+            return propertyName is "Entries" ? "Rewards" : "Table";
+
+        if (IsRewardEntry(componentType))
+        {
+            return propertyName switch
+            {
+                "EntryID" or "ItemID" => "Reward",
+                "Star1Value" or "Star2Value" or "Star3Value" or "Star4Value" or "Star5Value" => RewardEditorUsesQuantities ? "Quantities" : "Drop Chances",
+                _ => "Raw / Unknown",
+            };
+        }
+
         if (IsEncounterNest(componentType))
         {
             return propertyName switch
@@ -301,7 +397,10 @@ public static class RaidPropertyGridUtil
 
         return propertyName switch
         {
-            "TableID" or "LevelTableID" or "DropTableID" or "BonusTableID" => new RaidTableIdConverter(propertyName),
+            "TableID" when IsEncounterNestTable(componentType) => new RaidTableIdConverter(propertyName),
+            "TableID" when IsRewardTable(componentType) => new RaidRewardTableIdConverter(),
+            "LevelTableID" or "DropTableID" or "BonusTableID" => new RaidTableIdConverter(propertyName),
+            "ItemID" when IsRewardEntry(componentType) => new RaidItemValueConverter(),
             "SpeciesID" when IsDynamaxAdventure(componentType) => new RaidNamedEnumConverter<Species>(DynamaxAdventureSpeciesNames),
             "MoveSlot1" or "MoveSlot2" or "MoveSlot3" or "MoveSlot4" when IsDynamaxAdventure(componentType) => new RaidNamedEnumConverter<Move>(DynamaxAdventureMoveNames),
             "IVATK" or "IVDEF" or "IVSPA" or "IVSPD" or "IVSPE" when IsDynamaxAdventure(componentType) => new RaidIVConverter(),
@@ -324,6 +423,20 @@ public static class RaidPropertyGridUtil
             : "No base-game nest placement reference found. This table may be unused, event-only, or referenced by data outside placement.gfpak.";
     }
 
+    public static string GetRewardTableUsage(object? component)
+    {
+        return component is NestHoleRewardTable table
+            ? GetRewardTableUsage(table.TableID)
+            : "Unable to read reward table usage.";
+    }
+
+    public static string GetRewardTableUsage(ulong tableID)
+    {
+        return RewardTableUsageLabels.TryGetValue(tableID, out var label)
+            ? label
+            : "No base-game raid slot reference found. This table may be unused, event-only, or referenced by data outside nest_hole_encount.bin.";
+    }
+
     public static string GetListItemDisplayName(Type componentType, string listName, int index)
     {
         if (!IsRaidType(componentType))
@@ -331,9 +444,22 @@ public static class RaidPropertyGridUtil
 
         return listName switch
         {
+            "Entries" when IsRewardTable(componentType) => $"Reward {index:00}",
             "Entries" => $"Slot {index + 1:00}",
             _ => $"[{index}]",
         };
+    }
+
+    public static bool TryGetListItemSummary(object? item, out string summary)
+    {
+        if (item is NestHoleReward reward)
+        {
+            summary = GetRewardEntrySummary(reward);
+            return true;
+        }
+
+        summary = string.Empty;
+        return false;
     }
 
     public static IReadOnlyList<ulong> GetTableIDs(string propertyName)
@@ -362,6 +488,78 @@ public static class RaidPropertyGridUtil
         return labels != null && labels.TryGetValue(tableID, out var label)
             ? $"{label} - {tableID} (0x{tableID:X16})"
             : $"{tableID} (0x{tableID:X16})";
+    }
+
+    private static string GetRewardEntrySummary(NestHoleReward reward)
+    {
+        return $"{reward.EntryID}: {GetRewardEntryDisplayName(reward)}";
+    }
+
+    internal static string GetRewardEntryDisplayName(NestHoleReward reward)
+    {
+        var values = GetRewardValueSummary(reward);
+        return $"{GetItemDisplayName(reward.ItemID)} [{values}]";
+    }
+
+    private static string GetRewardValueSummary(NestHoleReward reward)
+    {
+        var parts = reward.Values
+            .Take(5)
+            .Select((value, index) => (Value: value, Star: index + 1))
+            .Where(z => z.Value != 0)
+            .Select(z => RewardEditorUsesQuantities ? $"{z.Star}★ {z.Value}" : $"{z.Star}★ {z.Value}%")
+            .ToArray();
+
+        return parts.Length == 0 ? "not awarded" : string.Join(", ", parts);
+    }
+
+    private static string GetRewardValueLabel(int star)
+    {
+        var suffix = RewardEditorUsesQuantities ? "Quantity" : "Chance (%)";
+        return $"{star}-Star {suffix}";
+    }
+
+    private static string GetRewardValueDescription(int star)
+    {
+        return RewardEditorUsesQuantities
+            ? $"Quantity awarded for this item when the raid uses this bonus reward table at the {star}-star reward bucket."
+            : $"Drop chance percentage for this item when the raid uses this reward table at the {star}-star reward bucket.";
+    }
+
+    internal static string GetItemDisplayName(uint itemID)
+    {
+        return itemID <= int.MaxValue
+            ? ShopItemNameFormatter.GetDisplayName((int)itemID, includeID: true)
+            : itemID.ToString(CultureInfo.InvariantCulture);
+    }
+
+    internal static int GetItemCount() => ItemConverter.ItemNames.Length;
+
+    internal static bool TryParseItemID(string text, out uint itemID)
+    {
+        text = text.Trim();
+        if (uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out itemID))
+            return true;
+
+        var open = text.LastIndexOf('(');
+        var close = text.LastIndexOf(')');
+        if (open >= 0 && close > open && uint.TryParse(text[(open + 1)..close], NumberStyles.Integer, CultureInfo.InvariantCulture, out itemID))
+            return true;
+
+        var nameOnly = open > 0 ? text[..open].Trim() : text;
+        var names = ItemConverter.ItemNames;
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (string.Equals(names[i], nameOnly, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(ShopItemNameFormatter.GetDisplayName(i), nameOnly, StringComparison.OrdinalIgnoreCase))
+            {
+                itemID = (uint)i;
+                return true;
+            }
+        }
+
+        itemID = 0;
+        return false;
     }
 
     private static void ConfigureTableLabels(Dictionary<ulong, string> labels, string prefix, IReadOnlyList<ulong> tableIDs)
@@ -420,6 +618,22 @@ public sealed class RaidPlacementUsagePropertyDescriptor()
     public override bool ShouldSerializeValue(object component) => false;
 }
 
+public sealed class RaidRewardTableUsagePropertyDescriptor()
+    : PropertyDescriptor("RewardTableUsage", null)
+{
+    public override bool CanResetValue(object component) => false;
+    public override Type ComponentType => typeof(object);
+    public override string Category => "Table";
+    public override string Description => "Base-game raid slots that reference this reward table.";
+    public override string DisplayName => "Used By";
+    public override object? GetValue(object? component) => RaidPropertyGridUtil.GetRewardTableUsage(component);
+    public override bool IsReadOnly => true;
+    public override Type PropertyType => typeof(string);
+    public override void ResetValue(object component) { }
+    public override void SetValue(object? component, object? value) { }
+    public override bool ShouldSerializeValue(object component) => false;
+}
+
 public sealed class RaidTableIdConverter(string propertyName) : TypeConverter
 {
     public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
@@ -470,6 +684,101 @@ public sealed class RaidTableIdConverter(string propertyName) : TypeConverter
 
         var decimalDigits = new string(text.SkipWhile(z => !char.IsDigit(z)).TakeWhile(char.IsDigit).ToArray());
         return ulong.TryParse(decimalDigits, NumberStyles.Integer, CultureInfo.InvariantCulture, out tableID);
+    }
+}
+
+public sealed class RaidRewardTableIdConverter : TypeConverter
+{
+    public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
+    {
+        return sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
+    }
+
+    public override object? ConvertFrom(ITypeDescriptorContext? context, CultureInfo? culture, object value)
+    {
+        if (value is string text && TryParseTableID(text, out var tableID))
+            return tableID;
+
+        return base.ConvertFrom(context, culture, value);
+    }
+
+    public override object? ConvertTo(ITypeDescriptorContext? context, CultureInfo? culture, object? value, Type destinationType)
+    {
+        if (destinationType == typeof(string) && value is ulong tableID)
+            return $"0x{tableID:X16}";
+
+        return base.ConvertTo(context, culture, value, destinationType);
+    }
+
+    private static bool TryParseTableID(string text, out ulong tableID)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+        {
+            tableID = 0;
+            return false;
+        }
+
+        var hexIndex = text.IndexOf("0x", StringComparison.OrdinalIgnoreCase);
+        if (hexIndex >= 0)
+        {
+            var hex = new string(text[(hexIndex + 2)..].TakeWhile(Uri.IsHexDigit).ToArray());
+            if (hex.Length != 0 && ulong.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out tableID))
+                return true;
+        }
+
+        return ulong.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out tableID);
+    }
+}
+
+public sealed class RaidRewardEntryConverter : ExpandableObjectConverter
+{
+    public override bool CanConvertTo(ITypeDescriptorContext? context, Type? destinationType)
+    {
+        return destinationType == typeof(string) || base.CanConvertTo(context, destinationType);
+    }
+
+    public override object? ConvertTo(ITypeDescriptorContext? context, CultureInfo? culture, object? value, Type destinationType)
+    {
+        if (destinationType == typeof(string) && value is NestHoleReward reward)
+            return RaidPropertyGridUtil.GetRewardEntryDisplayName(reward);
+
+        return base.ConvertTo(context, culture, value, destinationType);
+    }
+}
+
+public sealed class RaidItemValueConverter : TypeConverter
+{
+    public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
+    {
+        return sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
+    }
+
+    public override object? ConvertFrom(ITypeDescriptorContext? context, CultureInfo? culture, object value)
+    {
+        if (value is string text && RaidPropertyGridUtil.TryParseItemID(text, out var itemID))
+            return itemID;
+
+        return base.ConvertFrom(context, culture, value);
+    }
+
+    public override object? ConvertTo(ITypeDescriptorContext? context, CultureInfo? culture, object? value, Type destinationType)
+    {
+        if (destinationType == typeof(string) && value is uint itemID)
+            return RaidPropertyGridUtil.GetItemDisplayName(itemID);
+
+        return base.ConvertTo(context, culture, value, destinationType);
+    }
+
+    public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+    public override bool GetStandardValuesExclusive(ITypeDescriptorContext? context) => false;
+
+    public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
+    {
+        var values = Enumerable.Range(0, RaidPropertyGridUtil.GetItemCount())
+            .Select(index => (uint)index)
+            .ToArray();
+        return new StandardValuesCollection(values);
     }
 }
 
