@@ -10,12 +10,22 @@ namespace pkNX.WinForms;
 
 public sealed partial class GenericEditor<T> : Form where T : class
 {
+    private sealed record EntryComboEntry(int Index, string Text)
+    {
+        public override string ToString() => Text;
+    }
+
     private string[] Names;
+    private EntryComboEntry[] EntryEntries = [];
     private DataCache<T> Cache;
     private readonly ShopTableView ShopTable = new();
     private readonly PlacementTableView PlacementTable = new();
     private readonly Size OriginalMinimumSize;
+    private bool SuppressEntrySelectionChanged;
+    private bool SuppressEntryAutoComplete;
+    private bool UpdatingEntryFilter;
     private bool CloseConfirmed;
+    private EntrySearchListBox? EntrySearchList;
     public bool Modified { get; set; }
 
     public void ConfigurePlacementZoneNames(IReadOnlyDictionary<ulong, string> zoneNames)
@@ -43,11 +53,20 @@ public sealed partial class GenericEditor<T> : Form where T : class
         Text = title;
         WinFormsTheme.Apply(this);
         FormClosing += GenericEditor_FormClosing;
+        Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            CB_EntryName.Focus();
+            CB_EntryName.SelectAll();
+        }));
+        ConfigureEntrySelector();
+        if (CB_EntryName is EntrySelectorComboBox entrySelector)
+            entrySelector.BeforeMouseWheel += CB_EntryName_BeforeMouseWheel;
 
         Cache = loadCache(this);
         Names = Cache.LoadAll().Select(nameSelector).ToArray();
+        EntryEntries = Names.Select((z, i) => new EntryComboEntry(i, z)).ToArray();
 
-        CB_EntryName.Items.AddRange(Names);
+        CB_EntryName.Items.AddRange(EntryEntries);
         CB_EntryName.SelectedIndex = 0;
         UpdateShopEditorMinimumSize();
 
@@ -79,8 +98,8 @@ public sealed partial class GenericEditor<T> : Form where T : class
                 // Reload editor
                 Cache = loadCache(this);
                 Names = Cache.LoadAll().Select(nameSelector).ToArray();
-                CB_EntryName.Items.Clear();
-                CB_EntryName.Items.AddRange(Names);
+                EntryEntries = Names.Select((z, i) => new EntryComboEntry(i, z)).ToArray();
+                ResetEntryEntries();
                 UpdateShopEditorMinimumSize();
 
                 System.Media.SystemSounds.Asterisk.Play();
@@ -90,8 +109,543 @@ public sealed partial class GenericEditor<T> : Form where T : class
 
     private void CB_EntryName_SelectedIndexChanged(object sender, EventArgs e)
     {
-        var index = CB_EntryName.SelectedIndex;
+        if (SuppressEntrySelectionChanged)
+            return;
+
+        var index = GetSelectedEntryIndex();
         LoadIndex(index);
+    }
+
+    private void ConfigureEntrySelector()
+    {
+        CB_EntryName.DropDownStyle = ComboBoxStyle.DropDown;
+        CB_EntryName.AutoCompleteMode = AutoCompleteMode.None;
+        CB_EntryName.AutoCompleteSource = AutoCompleteSource.None;
+        CB_EntryName.DrawMode = DrawMode.OwnerDrawFixed;
+        CB_EntryName.ItemHeight = 22;
+        CB_EntryName.DropDownHeight = 1;
+        CB_EntryName.DrawItem += DrawEntryItem;
+        CB_EntryName.TextUpdate += (_, _) =>
+        {
+            var append = !SuppressEntryAutoComplete;
+            SuppressEntryAutoComplete = false;
+            FilterEntryEntries(append);
+        };
+        CB_EntryName.DropDown += (_, _) =>
+        {
+            BeginInvoke((MethodInvoker)(() =>
+            {
+                CB_EntryName.DroppedDown = false;
+                ShowEntrySearchList(GetEntrySearchText());
+            }));
+        };
+        CB_EntryName.SelectionChangeCommitted += (_, _) =>
+        {
+            var index = GetSelectedEntryIndex();
+            if (index >= 0)
+                SelectEntryIndex(index);
+        };
+        CB_EntryName.DropDownClosed += (_, _) => CB_EntryName.DroppedDown = false;
+        CB_EntryName.Leave += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            if (EntrySearchList?.Focused == true)
+                return;
+
+            CommitEntrySelectionFromText(allowPrefix: true);
+            HideEntrySearchList();
+        }));
+        CB_EntryName.KeyDown += CB_EntryName_KeyDown;
+
+        EntrySearchList = new EntrySearchListBox
+        {
+            BackColor = WinFormsTheme.InputBackground,
+            BorderStyle = BorderStyle.FixedSingle,
+            Cursor = Cursors.Default,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ForeColor = WinFormsTheme.Text,
+            IntegralHeight = false,
+            ItemHeight = 22,
+            Visible = false,
+        };
+        EntrySearchList.BeforeMouseWheel += EntrySearchList_BeforeMouseWheel;
+        EntrySearchList.DrawItem += DrawEntryListItem;
+        EntrySearchList.Click += (_, _) => CommitEntryListSelection();
+        EntrySearchList.MouseMove += EntrySearchList_MouseMove;
+        EntrySearchList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                CommitEntryListSelection();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (e.KeyCode == Keys.Escape)
+            {
+                HideEntrySearchList();
+                CB_EntryName.Focus();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        };
+        EntrySearchList.Leave += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            if (CB_EntryName.Focused)
+                return;
+
+            HideEntrySearchList();
+        }));
+    }
+
+    private void EntrySearchList_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (EntrySearchList is not { Items.Count: > 0 } list)
+            return;
+
+        var index = list.IndexFromPoint(e.Location);
+        if (index >= 0 && index < list.Items.Count && index != list.SelectedIndex)
+            list.SelectedIndex = index;
+    }
+
+    private void EntrySearchList_BeforeMouseWheel(object? sender, EntrySelectorMouseWheelEventArgs e)
+    {
+        if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
+        {
+            MoveEntrySearchSelection(list, e.MouseEvent.Delta);
+            e.Handled = true;
+        }
+    }
+
+    private void CB_EntryName_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Escape)
+        {
+            RestoreSelectedEntryText();
+            HideEntrySearchList();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Down && EntrySearchList is { Visible: true, Items.Count: > 0 } list)
+        {
+            list.SelectedIndex = Math.Max(0, list.SelectedIndex);
+            list.Focus();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode is Keys.Back or Keys.Delete)
+        {
+            HandleEntryDeleteKey(e);
+            return;
+        }
+
+        if (e.KeyCode is not Keys.Enter)
+            return;
+
+        if (!CommitEntrySelectionFromText(allowPrefix: true))
+            return;
+
+        e.Handled = true;
+        e.SuppressKeyPress = true;
+    }
+
+    private void CB_EntryName_BeforeMouseWheel(object? sender, EntrySelectorMouseWheelEventArgs e)
+    {
+        if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
+        {
+            MoveEntrySearchSelection(list, e.MouseEvent.Delta);
+            e.Handled = true;
+            return;
+        }
+
+        if (TryScrollMachineEntry(e.MouseEvent.Delta))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        CommitEntrySelectionFromText(allowPrefix: true);
+    }
+
+    private void HandleEntryDeleteKey(KeyEventArgs e)
+    {
+        SuppressEntryAutoComplete = true;
+        if (CB_EntryName.SelectionLength == 0)
+        {
+            var caret = CB_EntryName.SelectionStart;
+            var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < CB_EntryName.Text.Length;
+            if (!canDelete)
+                SuppressEntryAutoComplete = false;
+            return;
+        }
+
+        var text = CB_EntryName.Text;
+        var selectionStart = Math.Min(CB_EntryName.SelectionStart, text.Length);
+        var newText = e.KeyCode == Keys.Back && selectionStart > 0
+            ? text[..(selectionStart - 1)]
+            : text[..selectionStart];
+
+        SetEntrySearchText(newText);
+        SuppressEntryAutoComplete = false;
+        e.Handled = true;
+        e.SuppressKeyPress = true;
+    }
+
+    private bool CommitEntrySelectionFromText(bool allowPrefix)
+    {
+        var index = FindEntryIndex(CB_EntryName.Text, allowPrefix);
+        if (index < 0)
+            return false;
+
+        if (index == GetSelectedEntryIndex())
+        {
+            SetEntryText(index);
+            HideEntrySearchList();
+            return true;
+        }
+
+        SelectEntryIndex(index);
+        return true;
+    }
+
+    private int GetSelectedEntryIndex() => CB_EntryName.SelectedItem is EntryComboEntry entry ? entry.Index : CB_EntryName.SelectedIndex;
+
+    private void FilterEntryEntries(bool appendAutoComplete)
+    {
+        if (UpdatingEntryFilter)
+            return;
+
+        var userText = GetEntrySearchText();
+        var matches = GetEntryMatches(userText).ToArray();
+        var autoCompleteMatch = appendAutoComplete ? GetEntryAutoCompleteMatch(userText, matches) : null;
+        var displayText = autoCompleteMatch?.Text ?? userText;
+        var selectionStart = autoCompleteMatch == null ? userText.Length : Math.Min(userText.Length, autoCompleteMatch.Text.Length);
+        var selectionLength = autoCompleteMatch == null ? 0 : autoCompleteMatch.Text.Length - selectionStart;
+
+        UpdatingEntryFilter = true;
+        SuppressEntrySelectionChanged = true;
+        CB_EntryName.BeginUpdate();
+        CB_EntryName.Items.Clear();
+        CB_EntryName.Items.AddRange(matches);
+        CB_EntryName.EndUpdate();
+        CB_EntryName.Text = displayText;
+        CB_EntryName.SelectionStart = selectionStart;
+        CB_EntryName.SelectionLength = selectionLength;
+        SuppressEntrySelectionChanged = false;
+        UpdatingEntryFilter = false;
+
+        ShowEntrySearchList(userText, matches);
+    }
+
+    private void SetEntrySearchText(string text)
+    {
+        UpdatingEntryFilter = true;
+        CB_EntryName.Text = text;
+        CB_EntryName.SelectionStart = text.Length;
+        CB_EntryName.SelectionLength = 0;
+        UpdatingEntryFilter = false;
+        FilterEntryEntries(false);
+    }
+
+    private void ShowEntrySearchList(string text)
+    {
+        ShowEntrySearchList(text, GetEntryMatches(text).ToArray());
+    }
+
+    private void ShowEntrySearchList(string text, IReadOnlyCollection<EntryComboEntry> matches)
+    {
+        if (EntrySearchList == null)
+            return;
+
+        if (EntrySearchList.Parent != this)
+            Controls.Add(EntrySearchList);
+
+        EntrySearchList.BeginUpdate();
+        EntrySearchList.Items.Clear();
+        foreach (var match in matches)
+            EntrySearchList.Items.Add(match);
+        EntrySearchList.EndUpdate();
+
+        if (matches.Count == 0 || !CB_EntryName.Focused && EntrySearchList.Focused != true)
+        {
+            HideEntrySearchList();
+            return;
+        }
+
+        const int maxVisibleRows = 12;
+        var visibleRows = Math.Min(matches.Count, maxVisibleRows);
+        var screenLocation = CB_EntryName.Parent?.PointToScreen(CB_EntryName.Location) ?? PointToScreen(CB_EntryName.Location);
+        var location = PointToClient(new Point(screenLocation.X, screenLocation.Y + CB_EntryName.Height));
+        var availableHeight = Math.Max(EntrySearchList.ItemHeight + 2, ClientSize.Height - location.Y - 4);
+        var height = Math.Min(availableHeight, visibleRows * EntrySearchList.ItemHeight + 2);
+
+        EntrySearchList.Bounds = new Rectangle(location.X, location.Y, CB_EntryName.Width, height);
+        EntrySearchList.Visible = true;
+        EntrySearchList.BringToFront();
+        EntrySearchList.SelectedIndex = matches.Count > 0 ? 0 : -1;
+    }
+
+    private void HideEntrySearchList()
+    {
+        if (EntrySearchList != null)
+            EntrySearchList.Visible = false;
+    }
+
+    private void CommitEntryListSelection()
+    {
+        if (EntrySearchList?.SelectedItem is not EntryComboEntry entry)
+            return;
+
+        HideEntrySearchList();
+        CB_EntryName.Focus();
+        SelectEntryIndex(entry.Index);
+    }
+
+    private IEnumerable<EntryComboEntry> GetEntryMatches(string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+            return EntryEntries;
+
+        return EntryEntries
+            .Where(entry => EntryMatches(entry, text))
+            .OrderBy(entry => EntryMatchRank(entry, text))
+            .ThenBy(entry => EntryMachineSort(entry.Text))
+            .ThenBy(entry => entry.Index);
+    }
+
+    private static bool EntryMatches(EntryComboEntry entry, string text)
+    {
+        return entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase)
+            || entry.Index.ToString().StartsWith(text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int EntryMatchRank(EntryComboEntry entry, string text)
+    {
+        if (TryGetMachineName(entry.Text, out var entryKind, out _) && IsMachineSearch(text, entryKind))
+            return 0;
+        if (entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+            return 1;
+        if (entry.Index.ToString().StartsWith(text, StringComparison.OrdinalIgnoreCase))
+            return 2;
+        return 3;
+    }
+
+    private static int EntryMachineSort(string text)
+    {
+        return TryGetMachineName(text, out _, out var number) ? number : int.MaxValue;
+    }
+
+    private static EntryComboEntry? GetEntryAutoCompleteMatch(string text, IReadOnlyList<EntryComboEntry> matches)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+            return null;
+
+        return matches.FirstOrDefault(entry => entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetEntrySearchText()
+    {
+        var text = CB_EntryName.Text;
+        var selectionStart = Math.Min(CB_EntryName.SelectionStart, text.Length);
+        return selectionStart <= 0 ? text : text[..selectionStart];
+    }
+
+    private void ResetEntryEntries()
+    {
+        SuppressEntrySelectionChanged = true;
+        CB_EntryName.BeginUpdate();
+        CB_EntryName.Items.Clear();
+        CB_EntryName.Items.AddRange(EntryEntries);
+        CB_EntryName.EndUpdate();
+        SuppressEntrySelectionChanged = false;
+    }
+
+    private void SelectEntryIndex(int index)
+    {
+        if ((uint)index >= (uint)EntryEntries.Length)
+            return;
+
+        SuppressEntrySelectionChanged = true;
+        CB_EntryName.BeginUpdate();
+        CB_EntryName.Items.Clear();
+        CB_EntryName.Items.AddRange(EntryEntries);
+        CB_EntryName.EndUpdate();
+        SuppressEntrySelectionChanged = false;
+        CB_EntryName.SelectedItem = EntryEntries[index];
+        SetEntryText(index);
+        HideEntrySearchList();
+    }
+
+    private void SetEntryText(int index)
+    {
+        if ((uint)index >= (uint)EntryEntries.Length)
+            return;
+
+        CB_EntryName.Text = EntryEntries[index].Text;
+        CB_EntryName.SelectionStart = 0;
+        CB_EntryName.SelectionLength = 0;
+    }
+
+    private void RestoreSelectedEntryText()
+    {
+        var index = GetSelectedEntryIndex();
+        if ((uint)index < (uint)EntryEntries.Length)
+            SetEntryText(index);
+    }
+
+    private static void MoveEntrySearchSelection(ListBox list, int delta)
+    {
+        if (list.Items.Count == 0)
+            return;
+
+        var direction = delta < 0 ? 1 : -1;
+        var selected = Math.Max(0, list.SelectedIndex);
+        list.SelectedIndex = Math.Clamp(selected + direction, 0, list.Items.Count - 1);
+    }
+
+    private bool TryScrollMachineEntry(int delta)
+    {
+        if (!TryGetCurrentMachineEntry(out var kind, out var number))
+            return false;
+
+        var direction = delta < 0 ? 1 : -1;
+        for (var next = number + direction; next is >= 0 and <= 99; next += direction)
+        {
+            var index = FindMachineEntryIndex(kind, next);
+            if (index < 0)
+                continue;
+
+            SelectEntryIndex(index);
+            return true;
+        }
+
+        return true;
+    }
+
+    private bool TryGetCurrentMachineEntry(out string kind, out int number)
+    {
+        if (TryGetMachineName(CB_EntryName.Text, out kind, out number))
+            return true;
+
+        var index = GetSelectedEntryIndex();
+        if ((uint)index < (uint)Names.Length && TryGetMachineName(Names[index], out kind, out number))
+            return true;
+
+        kind = string.Empty;
+        number = -1;
+        return false;
+    }
+
+    private int FindMachineEntryIndex(string kind, int number)
+    {
+        var name = $"{kind}{number:00}";
+        return Array.FindIndex(Names, z => string.Equals(z, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsMachineSearch(string text, string kind)
+    {
+        text = text.Trim();
+        return text.Length >= 2 && text.StartsWith(kind, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetMachineName(string text, out string kind, out int number)
+    {
+        text = text.Trim();
+        if (text.Length < 4)
+        {
+            kind = string.Empty;
+            number = -1;
+            return false;
+        }
+
+        if (text.StartsWith("TM", StringComparison.OrdinalIgnoreCase))
+            kind = "TM";
+        else if (text.StartsWith("TR", StringComparison.OrdinalIgnoreCase))
+            kind = "TR";
+        else
+        {
+            kind = string.Empty;
+            number = -1;
+            return false;
+        }
+
+        var index = 2;
+        while (index < text.Length && text[index] == ' ')
+            index++;
+
+        var start = index;
+        while (index < text.Length && char.IsDigit(text[index]))
+            index++;
+
+        if (index == start || !int.TryParse(text[start..index], out number) || number is < 0 or > 99)
+        {
+            kind = string.Empty;
+            number = -1;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void DrawEntryItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not ComboBox comboBox || e.Index < 0 || e.Index >= comboBox.Items.Count)
+            return;
+
+        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+
+        using var background = new SolidBrush(backColor);
+        e.Graphics.FillRectangle(background, e.Bounds);
+        TextRenderer.DrawText(
+            e.Graphics,
+            comboBox.Items[e.Index]?.ToString() ?? string.Empty,
+            comboBox.Font,
+            e.Bounds,
+            foreColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        e.DrawFocusRectangle();
+    }
+
+    private static void DrawEntryListItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
+            return;
+
+        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+
+        using var background = new SolidBrush(backColor);
+        e.Graphics.FillRectangle(background, e.Bounds);
+        TextRenderer.DrawText(
+            e.Graphics,
+            listBox.Items[e.Index]?.ToString() ?? string.Empty,
+            listBox.Font,
+            new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 4, e.Bounds.Height),
+            foreColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        e.DrawFocusRectangle();
+    }
+
+    private int FindEntryIndex(string text, bool allowPrefix)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+            return -1;
+
+        var exact = Array.FindIndex(EntryEntries, z => string.Equals(z.Text, text, StringComparison.OrdinalIgnoreCase));
+        if (exact >= 0 || !allowPrefix)
+            return exact;
+
+        return GetEntryMatches(text).FirstOrDefault()?.Index ?? -1;
     }
 
     private void LoadIndex(int index)
@@ -202,4 +756,58 @@ public sealed partial class GenericEditor<T> : Form where T : class
             "Close Editor",
             "Close this editor without saving?\n\nAny changes made in this editor session will be discarded and the loaded project data will not be updated.",
             "Close");
+
+    private sealed class EntrySelectorComboBox : ComboBox
+    {
+        private const int WM_MOUSEWHEEL = 0x020A;
+        public event EventHandler<EntrySelectorMouseWheelEventArgs>? BeforeMouseWheel;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_MOUSEWHEEL && HandleMouseWheelMessage(m.WParam))
+                return;
+
+            base.WndProc(ref m);
+        }
+
+        private bool HandleMouseWheelMessage(IntPtr wParam)
+        {
+            var delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+            var location = PointToClient(MousePosition);
+            var mouseEvent = new MouseEventArgs(MouseButtons.None, 0, location.X, location.Y, delta);
+            var args = new EntrySelectorMouseWheelEventArgs(mouseEvent);
+            BeforeMouseWheel?.Invoke(this, args);
+            return args.Handled;
+        }
+    }
+
+    private sealed class EntrySearchListBox : ListBox
+    {
+        private const int WM_MOUSEWHEEL = 0x020A;
+        public event EventHandler<EntrySelectorMouseWheelEventArgs>? BeforeMouseWheel;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_MOUSEWHEEL && HandleMouseWheelMessage(m.WParam))
+                return;
+
+            base.WndProc(ref m);
+        }
+
+        private bool HandleMouseWheelMessage(IntPtr wParam)
+        {
+            var delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+            var location = PointToClient(MousePosition);
+            var mouseEvent = new MouseEventArgs(MouseButtons.None, 0, location.X, location.Y, delta);
+            var args = new EntrySelectorMouseWheelEventArgs(mouseEvent);
+            BeforeMouseWheel?.Invoke(this, args);
+            return args.Handled;
+        }
+    }
+
+    private sealed class EntrySelectorMouseWheelEventArgs(MouseEventArgs mouseEvent) : EventArgs
+    {
+        public MouseEventArgs MouseEvent { get; } = mouseEvent;
+        public bool Handled { get; set; }
+    }
 }

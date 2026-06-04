@@ -29,7 +29,7 @@ namespace pkNX.WinForms
         private void InitializeComponent()
         {
             B_Save = new System.Windows.Forms.Button();
-            CB_EntryName = new System.Windows.Forms.ComboBox();
+            CB_EntryName = new EntrySelectorComboBox();
             B_Dump = new System.Windows.Forms.Button();
             B_Rand = new System.Windows.Forms.Button();
             B_AddEntry = new System.Windows.Forms.Button();
@@ -57,8 +57,8 @@ namespace pkNX.WinForms
             // CB_EntryName
             // 
             CB_EntryName.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
-            CB_EntryName.AutoCompleteMode = System.Windows.Forms.AutoCompleteMode.SuggestAppend;
-            CB_EntryName.AutoCompleteSource = System.Windows.Forms.AutoCompleteSource.ListItems;
+            CB_EntryName.AutoCompleteMode = System.Windows.Forms.AutoCompleteMode.None;
+            CB_EntryName.AutoCompleteSource = System.Windows.Forms.AutoCompleteSource.None;
             CB_EntryName.Dock = System.Windows.Forms.DockStyle.Fill;
             CB_EntryName.FormattingEnabled = true;
             CB_EntryName.Location = new System.Drawing.Point(8, 9);

@@ -404,6 +404,7 @@ internal class EditorSWSH : EditorBase
         var data = arc[0];
         pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
         ShopItemNameFormatter.MoveNames = ROM.GetStrings(TextName.MoveNames);
+        ShopItemNameFormatter.MachineTable = Item8MachineTable.FromItemData(ROM[GameFile.ItemStats][0]);
         int[] PossibleHeldItems = Legal.GetRandomItemList(ROM.Game);
         var shop = FlatBufferConverter.DeserializeFrom<ShopInventory>(data);
         if (!shop2)
@@ -541,7 +542,8 @@ internal class EditorSWSH : EditorBase
     {
         var obj = ROM[GameFile.ItemStats]; // mini
         var data = obj[0];
-        var items = Item8.GetArray(data);
+        var allowedMachineMoves = Legal.GetAllowedMoves(ROM.Game, Data.MoveData.Length).Select(z => (ushort)z).ToArray();
+        var items = Item8.GetArray(data, allowedMachineMoves);
         var cache = new DataCache<Item8>(items);
         using var form = new GenericEditor<Item8>(cache, ROM.GetStrings(TextName.ItemNames), "Item Editor", Randomize);
         form.ShowDialog();
@@ -559,13 +561,15 @@ internal class EditorSWSH : EditorBase
                 if (item.ItemSprite == -1 || !tradeEvos.Contains(item.ItemID))
                     continue;
 
-                item.Boost0 = 8; // evo stone
-                item.EffectField = 6; // use effect
+                item.EvoStone = true;
+                item.EffectField = FieldItemType.Evolution;
                 item.CanUseOnPokemon = true;
             }
         }
 
-        obj[0] = Item8.SetArray(items, data);
+        var editedData = Item8.SetArray(items, data);
+        obj[0] = editedData;
+        ShopItemNameFormatter.MachineTable = Item8MachineTable.FromItemData(editedData, allowedMachineMoves);
     }
 
     public void EditGift()

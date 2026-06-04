@@ -8,6 +8,7 @@ namespace pkNX.WinForms;
 public static class ShopItemNameFormatter
 {
     public static string[] MoveNames { get; set; } = [];
+    public static Item8MachineTable MachineTable { get; set; } = Item8MachineTable.CreateDefault();
 
     public static string GetDisplayName(int item, bool includeID = false)
     {
@@ -30,7 +31,7 @@ public static class ShopItemNameFormatter
         if ((uint)item > ushort.MaxValue)
             return null;
 
-        return TryGetMachineMove((ushort)item, out var move) && (uint)move < (uint)MoveNames.Length
+        return MachineTable.TryGetMoveForItem((ushort)item, out var move) && (uint)move < (uint)MoveNames.Length
             ? MoveNames[move]
             : null;
     }
@@ -45,29 +46,4 @@ public static class ShopItemNameFormatter
         return string.IsNullOrWhiteSpace(name) ? $"Item {item}" : name;
     }
 
-    private static bool TryGetMachineMove(ushort item, out ushort move)
-    {
-        if (item == 1230)
-        {
-            move = Legal.TMHM_SWSH[0];
-            return true;
-        }
-
-        var tmIndex = Array.IndexOf(Legal.Pouch_TM_SWSH, item);
-        if (tmIndex >= 0 && tmIndex + 1 < Legal.TMHM_SWSH.Length)
-        {
-            move = Legal.TMHM_SWSH[tmIndex + 1];
-            return true;
-        }
-
-        var trIndex = Array.IndexOf(Legal.Pouch_TR_SWSH, item);
-        if (trIndex >= 0 && trIndex < Legal.TR_SWSH.Length)
-        {
-            move = Legal.TR_SWSH[trIndex];
-            return true;
-        }
-
-        move = 0;
-        return false;
-    }
 }
