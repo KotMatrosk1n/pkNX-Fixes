@@ -52,7 +52,7 @@ public static class TypeRegistrationHelper
                 return;
         }
 
-        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type);
+        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type);
         if (registeredProvider)
             AddProvider(type);
 
@@ -154,14 +154,20 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
             if (pd.Name == "Hash" && TypeRegistrationHelper.IsShopType(objectType))
                 continue;
 
-            // Check if this is our target property.
-            // For example, check by name or by type.
+            if (RaidPropertyGridUtil.ShouldHide(objectType, pd.Name))
+                continue;
+
             if (TypeRegistrationHelper.TryGetListElementType(pd.PropertyType, out _))
                 newProps.Add(new DynamicListPropertyDescriptor(pd));
             else if (PlacementPropertyGridUtil.IsPlacementType(objectType))
                 newProps.Add(new PlacementPropertyDescriptor(pd));
+            else if (RaidPropertyGridUtil.IsRaidType(objectType))
+                newProps.Add(new RaidPropertyDescriptor(pd));
             else
                 newProps.Add(pd);
+
+            if (RaidPropertyGridUtil.IsEncounterNestTable(objectType) && pd.Name == "TableID")
+                newProps.Add(new RaidPlacementUsagePropertyDescriptor());
         }
 
         return new PropertyDescriptorCollection(newProps.ToArray(), true);
@@ -178,7 +184,15 @@ public class DynamicListPropertyDescriptor(PropertyDescriptor baseDescriptor)
     public override Type PropertyType => baseDescriptor.PropertyType;
     public override string DisplayName => PlacementPropertyGridUtil.IsPlacementType(ComponentType)
         ? PlacementPropertyGridUtil.GetDisplayName(ComponentType, Name, PropertyType)
+        : RaidPropertyGridUtil.IsRaidType(ComponentType)
+            ? RaidPropertyGridUtil.GetDisplayName(ComponentType, Name)
         : baseDescriptor.DisplayName;
+    public override string Category => RaidPropertyGridUtil.IsRaidType(ComponentType)
+        ? RaidPropertyGridUtil.GetCategory(ComponentType, Name)
+        : baseDescriptor.Category;
+    public override string Description => RaidPropertyGridUtil.IsRaidType(ComponentType)
+        ? RaidPropertyGridUtil.GetDescription(ComponentType, Name)
+        : baseDescriptor.Description;
     public override void ResetValue(object component) => baseDescriptor.ResetValue(component);
     public override void SetValue(object? component, object? value) => baseDescriptor.SetValue(component, value);
     public override bool ShouldSerializeValue(object component) => baseDescriptor.ShouldSerializeValue(component);
@@ -219,6 +233,7 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
 {
     private readonly bool IsShopItemList = IsShopItemListProperty(listDescriptor);
     private readonly bool IsPlacementList = IsPlacementListProperty(listDescriptor);
+    private readonly bool IsRaidList = IsRaidListProperty(listDescriptor);
     private readonly TypeConverter ElementConverter = GetElementConverter(listDescriptor);
 
     private static TypeConverter GetElementConverter(PropertyDescriptor listDescriptor)
@@ -243,6 +258,11 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
     {
         var fullName = listDescriptor.ComponentType.FullName;
         return fullName?.StartsWith("pkNX.Structures.FlatBuffers.SWSH.PlacementZone", StringComparison.Ordinal) == true;
+    }
+
+    private static bool IsRaidListProperty(PropertyDescriptor listDescriptor)
+    {
+        return RaidPropertyGridUtil.IsRaidType(listDescriptor.ComponentType);
     }
 
     private static bool IsPlacementFieldItemHashListProperty(PropertyDescriptor listDescriptor)
@@ -272,9 +292,9 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
                 if (items.Length == 0)
                     return "Empty";
 
-                var maxItems = IsPlacementList ? 2 : items.Length;
+                var maxItems = IsPlacementList ? 2 : IsRaidList ? 4 : items.Length;
                 var summary = string.Join(", ", items.Take(maxItems).Select(item => ConvertItemToString(context, culture, item)));
-                return IsPlacementList && items.Length > maxItems ? $"{summary}, ... ({items.Length} total)" : summary;
+                return (IsPlacementList || IsRaidList) && items.Length > maxItems ? $"{summary}, ... ({items.Length} total)" : summary;
             }
         }
 
@@ -313,13 +333,16 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
 
         var props = new PropertyDescriptor[list.Count];
         for (int i = 0; i < list.Count; i++)
-            props[i] = new ListItemPropertyDescriptor<T>(list, i, ElementConverter);
+        {
+            var displayName = RaidPropertyGridUtil.GetListItemDisplayName(listDescriptor.ComponentType, listDescriptor.Name, i);
+            props[i] = new ListItemPropertyDescriptor<T>(list, i, ElementConverter, displayName);
+        }
 
         return new PropertyDescriptorCollection(props);
     }
 }
 
-public class ListItemPropertyDescriptor<T>(IList<T?> list, int index, TypeConverter converter)
+public class ListItemPropertyDescriptor<T>(IList<T?> list, int index, TypeConverter converter, string displayName)
     : PropertyDescriptor($"[{index}]", null)
 {
     public override object? GetValue(object? component) => list[index];
@@ -332,6 +355,7 @@ public class ListItemPropertyDescriptor<T>(IList<T?> list, int index, TypeConver
     }
     public override bool IsReadOnly => false;
     public override Type ComponentType => list.GetType();
+    public override string DisplayName => displayName;
     public override bool CanResetValue(object component) => false;
     public override TypeConverter Converter => converter;
     public override Type PropertyType => typeof(T);

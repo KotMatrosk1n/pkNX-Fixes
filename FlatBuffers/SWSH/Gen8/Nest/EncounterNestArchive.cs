@@ -4,6 +4,24 @@ namespace pkNX.Structures.FlatBuffers.SWSH;
 
 public partial class EncounterNestTable
 {
+    public RaidGameVersion Version
+    {
+        get => GameVersion switch
+        {
+            1 => RaidGameVersion.Sword,
+            2 => RaidGameVersion.Shield,
+            _ => RaidGameVersion.Unknown,
+        };
+        set => GameVersion = value switch
+        {
+            RaidGameVersion.Sword => 1,
+            RaidGameVersion.Shield => 2,
+            _ => GameVersion,
+        };
+    }
+
+    public int EntryCount => Entries.Count;
+
     public string GetSummarySimple()
     {
         var tableID = TableID.ToString("X16");
@@ -133,7 +151,11 @@ public partial class EncounterNestTable
 
 public partial class EncounterNest
 {
-    public Species SpeciesID => (Species)Species;
+    public Species SpeciesID
+    {
+        get => (Species)Species;
+        set => Species = (int)value;
+    }
 
     public FixedAbility AbilityPermitted
     {
@@ -141,8 +163,105 @@ public partial class EncounterNest
         set => Ability = (byte)value;
     }
 
+    public RaidAbilityRoll AbilityRoll
+    {
+        get => (RaidAbilityRoll)Ability;
+        set => Ability = (byte)value;
+    }
+
+    public RaidGender GenderType
+    {
+        get => (RaidGender)Gender;
+        set => Gender = (sbyte)value;
+    }
+
+    public uint Star1Probability
+    {
+        get => GetProbability(0);
+        set => SetProbability(0, value);
+    }
+
+    public uint Star2Probability
+    {
+        get => GetProbability(1);
+        set => SetProbability(1, value);
+    }
+
+    public uint Star3Probability
+    {
+        get => GetProbability(2);
+        set => SetProbability(2, value);
+    }
+
+    public uint Star4Probability
+    {
+        get => GetProbability(3);
+        set => SetProbability(3, value);
+    }
+
+    public uint Star5Probability
+    {
+        get => GetProbability(4);
+        set => SetProbability(4, value);
+    }
+
     public int MinRank => Array.FindIndex(Probabilities.ToArray(), z => z != 0);
     public int MaxRank => Array.FindLastIndex(Probabilities.ToArray(), z => z != 0);
 
-    public override string ToString() => $"{EntryIndex:00} - {Species:000}";
+    public override string ToString()
+    {
+        var form = Form == 0 ? string.Empty : $"-{Form}";
+        return $"{EntryIndex:00}: {(Species)Species}{form} ({GetStarRange()}, {GetProbabilitySummary()})";
+    }
+
+    private uint GetProbability(int index) => (uint)index < (uint)Probabilities.Count ? Probabilities[index] : 0;
+
+    private void SetProbability(int index, uint value)
+    {
+        if ((uint)index < (uint)Probabilities.Count)
+            Probabilities[index] = value;
+    }
+
+    private string GetStarRange()
+    {
+        if (MinRank < 0 || MaxRank < 0)
+            return "No star ranks";
+
+        return MinRank == MaxRank
+            ? $"{MinRank + 1}-Star"
+            : $"{MinRank + 1}-{MaxRank + 1}-Star";
+    }
+
+    private string GetProbabilitySummary()
+    {
+        var parts = Probabilities
+            .Select((value, index) => value == 0 ? string.Empty : $"{index + 1}-Star {value}%")
+            .Where(z => z.Length != 0);
+        var summary = string.Join(", ", parts);
+        return summary.Length == 0 ? "0%" : summary;
+    }
+}
+
+public enum RaidGameVersion
+{
+    Unknown,
+    Sword,
+    Shield,
+}
+
+public enum RaidAbilityRoll
+{
+    Ability1,
+    Ability2,
+    HiddenAbility,
+    Ability1Or2,
+    Any,
+}
+
+public enum RaidGender
+{
+    Random,
+    Male,
+    Female,
+    Genderless,
 }
