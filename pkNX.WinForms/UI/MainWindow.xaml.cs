@@ -76,6 +76,7 @@ public partial class MainWindow
     {
         InitializeComponent();
         DataContext = this;
+        Title = Branding.WindowTitle();
 
         CB_Lang.ItemsSource = SupportedLanguages;
 
@@ -232,7 +233,7 @@ public partial class MainWindow
             });
         }
 
-        categories.AddRange(Editor!.GetControls(category, Settings.DisplayAdvanced).OrderBy(x => x.Title));
+        categories.AddRange(Editor!.GetControls(category, Settings.DisplayAdvanced).OrderBy(GetEditorButtonSortKey));
 
         Categories = [.. categories];
 
@@ -272,7 +273,7 @@ public partial class MainWindow
         double titleHeight = (SystemParameters.WindowCaptionHeight + SystemParameters.ResizeFrameHorizontalBorderHeight) * 1.5;
         double verticalBorderWidth = Math.Ceiling((SystemParameters.ResizeFrameVerticalBorderWidth + SystemParameters.FixedFrameVerticalBorderWidth) * 2) + 4;
 
-        Width = containerHorizontalMargin + (columns * wp) + verticalBorderWidth;
+        Width = containerHorizontalMargin + (columns * wp) + verticalBorderWidth + 24;
         Height = SP_Header.Height + containerVerticalMargin + (rows * hp) + titleHeight;
 
         UpdateLayout();
@@ -289,7 +290,7 @@ public partial class MainWindow
 
         LoadEditorButtons();
 
-        Title = $"{nameof(pkNX)} - {Editor.Game}";
+        Title = Branding.WindowTitle(Editor.Game);
         L_Path.Content = Editor.Location;
         Menu_Current.IsEnabled = true;
         EditUtil.LoadSettings(Editor.Game);
@@ -372,5 +373,12 @@ public partial class MainWindow
 
         // Force reload of editor buttons
         LoadEditorButtons();
+    }
+
+    private static string GetEditorButtonSortKey(EditorButtonData button)
+    {
+        return button.Title.Equals("Wild", StringComparison.OrdinalIgnoreCase)
+            ? "Items~Wild"
+            : button.Title;
     }
 }
