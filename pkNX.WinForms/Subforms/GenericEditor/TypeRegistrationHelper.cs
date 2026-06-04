@@ -52,7 +52,7 @@ public static class TypeRegistrationHelper
                 return;
         }
 
-        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type) || MovePropertyGridUtil.IsMoveType(type);
+        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type) || MovePropertyGridUtil.IsMoveType(type) || RentalPropertyGridUtil.IsRentalType(type);
         if (registeredProvider)
             AddProvider(type);
 
@@ -160,6 +160,9 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
             if (RaidPropertyGridUtil.ShouldHide(objectType, pd.Name))
                 continue;
 
+            if (RentalPropertyGridUtil.ShouldHide(objectType, pd.Name))
+                continue;
+
             if (TypeRegistrationHelper.TryGetListElementType(pd.PropertyType, out _))
                 newProps.Add(new DynamicListPropertyDescriptor(pd));
             else if (PlacementPropertyGridUtil.IsPlacementType(objectType))
@@ -168,6 +171,8 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
                 newProps.Add(new RaidPropertyDescriptor(pd));
             else if (MovePropertyGridUtil.IsMoveType(objectType))
                 newProps.Add(new MovePropertyDescriptor(pd));
+            else if (RentalPropertyGridUtil.IsRentalType(objectType))
+                newProps.Add(new RentalPropertyDescriptor(pd));
             else
                 newProps.Add(pd);
 
