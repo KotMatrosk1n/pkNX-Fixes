@@ -52,7 +52,7 @@ public static class TypeRegistrationHelper
                 return;
         }
 
-        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type) || MovePropertyGridUtil.IsMoveType(type) || RentalPropertyGridUtil.IsRentalType(type) || StaticEncounterPropertyGridUtil.IsStaticEncounterType(type) || SymbolBehaviorPropertyGridUtil.IsSymbolBehaviorType(type);
+        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type) || MovePropertyGridUtil.IsMoveType(type) || RentalPropertyGridUtil.IsRentalType(type) || StaticEncounterPropertyGridUtil.IsStaticEncounterType(type) || SymbolBehaviorPropertyGridUtil.IsSymbolBehaviorType(type) || TradePropertyGridUtil.IsTradeType(type);
         if (registeredProvider)
             AddProvider(type);
 
@@ -169,6 +169,9 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
             if (SymbolBehaviorPropertyGridUtil.ShouldHide(objectType, pd.Name))
                 continue;
 
+            if (TradePropertyGridUtil.ShouldHide(objectType, pd.Name))
+                continue;
+
             if (TypeRegistrationHelper.TryGetListElementType(pd.PropertyType, out _))
                 newProps.Add(new DynamicListPropertyDescriptor(pd));
             else if (PlacementPropertyGridUtil.IsPlacementType(objectType))
@@ -183,6 +186,8 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
                 newProps.Add(new StaticEncounterPropertyDescriptor(pd));
             else if (SymbolBehaviorPropertyGridUtil.IsSymbolBehaviorType(objectType))
                 newProps.Add(new SymbolBehaviorPropertyDescriptor(pd));
+            else if (TradePropertyGridUtil.IsTradeType(objectType))
+                newProps.Add(new TradePropertyDescriptor(pd));
             else
                 newProps.Add(pd);
 

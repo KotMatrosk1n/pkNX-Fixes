@@ -122,7 +122,7 @@ public static class StaticEncounterPropertyGridUtil
             "BackgroundFarTypeID" => "Internal background/environment hash for the far background type.",
             "BackgroundNearTypeID" => "Internal background/environment hash for the near background type.",
             "EVHP" or "EVATK" or "EVDEF" or "EVSPA" or "EVSPD" or "EVSPE" => "Effort value assigned to this stat.",
-            "IVHP" => "Individual value assigned to HP. -1 means random; -4 is used by base data as a special guaranteed-perfect-IV marker.",
+            "IVHP" => "Individual value assigned to HP. -1 means random; -4 is used by base data as a sentinel for three randomly chosen perfect IVs.",
             "IVATK" or "IVDEF" or "IVSPA" or "IVSPD" or "IVSPE" => "Individual value assigned to this stat. -1 means random; 0-31 forces that IV.",
             "Field0A" or "Field0C" => "Unmapped static encounter field. Kept editable for advanced use until its purpose is confirmed.",
             _ => string.Empty,
@@ -161,7 +161,8 @@ public static class StaticEncounterPropertyGridUtil
             "GenderType" => new MoveEnumConverter<StaticEncounterGender>(),
             "ShinyType" => new StaticEncounterShinyConverter(),
             "EncounterScenario" => new MoveEnumConverter<Scenario>(),
-            "IVHP" or "IVATK" or "IVDEF" or "IVSPA" or "IVSPD" or "IVSPE" => new StaticEncounterIVConverter(),
+            "IVHP" => new StaticEncounterIVConverter(allowFlawlessMarker: true),
+            "IVATK" or "IVDEF" or "IVSPA" or "IVSPD" or "IVSPE" => new StaticEncounterIVConverter(allowFlawlessMarker: false),
             "EncounterID" or "BackgroundFarTypeID" or "BackgroundNearTypeID" => new RaidUInt64HexConverter(),
             _ => null,
         };
@@ -398,8 +399,11 @@ public sealed class StaticEncounterShinyConverter : EnumConverter
     }
 }
 
-public sealed class StaticEncounterIVConverter : SByteConverter
+public sealed class StaticEncounterIVConverter(bool allowFlawlessMarker = true) : SByteConverter
 {
+    private static readonly object[] RegularValues = [(sbyte)-1, .. Enumerable.Range(0, 32).Select(z => (object)(sbyte)z)];
+    private static readonly object[] ValuesWithFlawlessMarker = [(sbyte)-1, (sbyte)-4, .. Enumerable.Range(0, 32).Select(z => (object)(sbyte)z)];
+
     public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
         => sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
@@ -431,11 +435,16 @@ public sealed class StaticEncounterIVConverter : SByteConverter
             return iv switch
             {
                 -1 => "Random (-1)",
-                -4 => "3 Perfect IV Marker (-4)",
+                -4 => "3 Random Perfect IVs (-4)",
+                >= 0 and <= 31 => $"Fixed {iv}",
                 _ => iv.ToString(CultureInfo.InvariantCulture),
             };
         }
 
         return base.ConvertTo(context, culture, value, destinationType);
     }
+
+    public override bool GetStandardValuesSupported(ITypeDescriptorContext? context) => true;
+    public override bool GetStandardValuesExclusive(ITypeDescriptorContext? context) => false;
+    public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context) => new(allowFlawlessMarker ? ValuesWithFlawlessMarker : RegularValues);
 }

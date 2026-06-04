@@ -879,7 +879,8 @@ internal class EditorSWSH : EditorBase
         var objs = FlatBufferConverter.DeserializeFrom<EncounterTradeArchive>(data);
 
         var trades = objs.Table;
-        var names = Enumerable.Range(0, trades.Count).Select(z => $"{z:000}").ToArray();
+        TradePropertyGridUtil.Configure(ROM.GetStrings(TextName.SpeciesNames), ROM.GetStrings(TextName.MoveNames));
+        var names = trades.Select(TradePropertyGridUtil.GetTradeName).ToArray();
         var cache = new DirectCache<Structures.FlatBuffers.SWSH.EncounterTrade>(trades);
 
         // Get dialogues
@@ -894,6 +895,36 @@ internal class EditorSWSH : EditorBase
                 continue;
             field_trade = tc[i];
             break;
+        }
+
+        void UpdateTradeDialogues()
+        {
+            var strings = PKHeX.Core.GameInfo.Strings;
+            for (int i = 0; i < trades.Count; i++)
+            {
+                var t = trades[i];
+
+                static string GetFormPrefix(int species, int form, GameStrings strings)
+                {
+                    if (form == 0)
+                        return "";
+                    var list = FormConverter.GetFormList((ushort)species, strings.types, strings.forms, ["M", "F", "-"], EntityContext.Gen8);
+                    if (form >= list.Length)
+                        return "";
+                    return $"{list[form]} ";
+                }
+
+                var reqSpecies = t.RequiredSpecies;
+                var reqForm = GetFormPrefix(reqSpecies, t.RequiredForm, strings);
+                var resSpecies = t.Species;
+                var resForm = GetFormPrefix(resSpecies, t.Form, strings);
+
+                int ind = tradingLines[i];
+                var line1 = $"Do you happen to have a {reqForm}{strings.Species[reqSpecies]}?";
+                var line2 = $"I'd like to trade my {resForm}{strings.Species[resSpecies]} for it.";
+                field_trade[ind] = $"{line1}\n{line2}";
+            }
+            tc.Save();
         }
 
         void Randomize()
@@ -929,34 +960,6 @@ internal class EditorSWSH : EditorBase
                 t.RequiredForm = (byte)frand.GetRandomForm(t.RequiredSpecies, false, false, ROM.Info.Generation, Data.PersonalData.Table);
                 t.RequiredNature = (int)Nature.Random25; // any
             }
-
-            // Update Trade Dialogues
-            var strings = PKHeX.Core.GameInfo.Strings;
-            for (int i = 0; i < trades.Count; i++)
-            {
-                var t = trades[i];
-                // Update trade dialog
-                static string GetFormPrefix(int species, int form, GameStrings strings)
-                {
-                    if (form == 0)
-                        return "";
-                    var list = FormConverter.GetFormList((ushort)species, strings.types, strings.forms, ["♂", "♀", "-"], EntityContext.Gen8);
-                    if (form >= list.Length)
-                        return "";
-                    return $"{list[form]} ";
-                }
-
-                var reqSpecies = t.RequiredSpecies;
-                var reqForm = GetFormPrefix(reqSpecies, t.RequiredForm, strings);
-                var resSpecies = t.Species;
-                var resForm = GetFormPrefix(resSpecies, t.Form, strings);
-
-                int ind = tradingLines[i];
-                var line1 = $"Do you happen to have a {reqForm}{strings.Species[reqSpecies]}?";
-                var line2 = $"I'd like to trade my {resForm}{strings.Species[resSpecies]} for it.";
-                field_trade[ind] = $"{line1}\n{line2}";
-            }
-            tc.Save();
         }
 
         using var form = new GenericEditor<Structures.FlatBuffers.SWSH.EncounterTrade>(cache, names, "In-Game Trades Editor", Randomize);
@@ -964,7 +967,10 @@ internal class EditorSWSH : EditorBase
         if (!form.Modified)
             arc.CancelEdits();
         else
+        {
+            UpdateTradeDialogues();
             arc[0] = objs.SerializeFrom();
+        }
     }
 
     public void EditDynamaxAdv()
