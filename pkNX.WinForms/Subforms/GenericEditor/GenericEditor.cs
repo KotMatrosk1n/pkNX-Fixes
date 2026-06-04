@@ -5,6 +5,9 @@ using System.Linq;
 using System.Windows.Forms;
 using pkNX.Game;
 using pkNX.Structures;
+using BindingFlags = System.Reflection.BindingFlags;
+using MethodInfo = System.Reflection.MethodInfo;
+using PropertyInfo = System.Reflection.PropertyInfo;
 
 namespace pkNX.WinForms;
 
@@ -26,6 +29,20 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private bool UpdatingEntryFilter;
     private bool CloseConfirmed;
     private EntrySearchListBox? EntrySearchList;
+    private readonly ToolTip GridToolTip = new()
+    {
+        AutoPopDelay = 12000,
+        InitialDelay = 500,
+        ReshowDelay = 100,
+        ShowAlways = true,
+        BackColor = WinFormsTheme.PanelBackground,
+        ForeColor = WinFormsTheme.Text,
+    };
+    private Control? GridViewControl;
+    private MethodInfo? GridEntryFromOffsetMethod;
+    private PropertyInfo? GridEntryDescriptionProperty;
+    private PropertyInfo? GridEntryLabelProperty;
+    private string CurrentGridToolTip = string.Empty;
     public bool Modified { get; set; }
 
     public void ConfigurePlacementZoneNames(IReadOnlyDictionary<ulong, string> zoneNames)
@@ -52,6 +69,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         TypeRegistrationHelper.RegisterIListConvertersRecursively(typeof(T));
         Text = title;
         WinFormsTheme.Apply(this);
+        ConfigurePropertyGridToolTips();
         FormClosing += GenericEditor_FormClosing;
         Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
         {
@@ -105,6 +123,87 @@ public sealed partial class GenericEditor<T> : Form where T : class
                 System.Media.SystemSounds.Asterisk.Play();
             };
         }
+    }
+
+    private void ConfigurePropertyGridToolTips()
+    {
+        components?.Add(GridToolTip);
+        Grid.HandleCreated += (_, _) => AttachPropertyGridToolTips();
+        AttachPropertyGridToolTips();
+    }
+
+    private void AttachPropertyGridToolTips()
+    {
+        if (GridViewControl != null)
+            return;
+
+        var gridViewField = typeof(PropertyGrid).GetField("gridView", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (gridViewField?.GetValue(Grid) is not Control gridView)
+            return;
+
+        GridEntryFromOffsetMethod = gridView.GetType().GetMethod("GetGridEntryFromOffset", BindingFlags.Instance | BindingFlags.NonPublic);
+        var gridEntryType = GridEntryFromOffsetMethod?.ReturnType;
+        GridEntryDescriptionProperty = gridEntryType?.GetProperty("PropertyDescription", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        GridEntryLabelProperty = gridEntryType?.GetProperty("PropertyLabel", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        if (GridEntryFromOffsetMethod == null || GridEntryDescriptionProperty == null)
+            return;
+
+        GridViewControl = gridView;
+        GridViewControl.MouseMove += GridViewControl_MouseMove;
+        GridViewControl.MouseLeave += (_, _) => HideGridToolTip();
+    }
+
+    private void GridViewControl_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (sender is not Control control)
+            return;
+
+        var text = GetGridToolTipText(e.Y);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            HideGridToolTip();
+            return;
+        }
+
+        if (text == CurrentGridToolTip)
+            return;
+
+        CurrentGridToolTip = text;
+        GridToolTip.SetToolTip(control, text);
+    }
+
+    private string GetGridToolTipText(int mouseY)
+    {
+        try
+        {
+            var entry = GridEntryFromOffsetMethod?.Invoke(GridViewControl, [mouseY]);
+            if (entry == null)
+                return string.Empty;
+
+            var description = GridEntryDescriptionProperty?.GetValue(entry) as string;
+            if (string.IsNullOrWhiteSpace(description))
+                return string.Empty;
+
+            var label = GridEntryLabelProperty?.GetValue(entry) as string;
+            return string.IsNullOrWhiteSpace(label)
+                ? description
+                : $"{label}\n{description}";
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private void HideGridToolTip()
+    {
+        if (GridViewControl == null || CurrentGridToolTip.Length == 0)
+            return;
+
+        CurrentGridToolTip = string.Empty;
+        GridToolTip.SetToolTip(GridViewControl, string.Empty);
+        GridToolTip.Hide(GridViewControl);
     }
 
     private void CB_EntryName_SelectedIndexChanged(object sender, EventArgs e)

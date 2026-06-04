@@ -604,6 +604,7 @@ internal class EditorSWSH : EditorBase
             Create = FlatBufferConverter.DeserializeFrom<Waza>,
             Write = FlatBufferConverter.SerializeFrom,
         };
+        MovePropertyGridUtil.Configure(ROM.GetStrings(TextName.MoveNames));
         using var form = new GenericEditor<Waza>(cache, ROM.GetStrings(TextName.MoveNames), "Move Editor");
         form.ShowDialog();
         if (!form.Modified)

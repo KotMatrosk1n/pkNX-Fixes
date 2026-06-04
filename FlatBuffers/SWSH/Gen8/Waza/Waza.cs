@@ -4,9 +4,16 @@ public partial class Waza : IMove
 {
     public byte[] Write() => this.SerializeFrom();
 
+    public Move MoveIdentifier { get => (Move)MoveID; set => MoveID = (uint)value; }
+    public Types MoveType { get => (Types)Type; set => Type = (byte)value; }
+    public MoveDamageCategory DamageCategory { get => (MoveDamageCategory)Category; set => Category = (byte)value; }
+    public MoveInflict InflictedStatus { get => (MoveInflict)Inflict; set => Inflict = (ushort)value; }
     public MoveInflictDuration InflictCount { get => (MoveInflictDuration)RawInflictCount; set => RawInflictCount = (byte)value; }
     public Heal Healing { get => (Heal)RawHealing; set => RawHealing = (sbyte)value; }
     public MoveTarget Target { get => (MoveTarget)RawTarget; set => RawTarget = (byte)value; }
+    public MoveStat Stat1ID { get => (MoveStat)Stat1; set => Stat1 = (byte)value; }
+    public MoveStat Stat2ID { get => (MoveStat)Stat2; set => Stat2 = (byte)value; }
+    public MoveStat Stat3ID { get => (MoveStat)Stat3; set => Stat3 = (byte)value; }
 
     int IMove.Type { get => Type ; set => Type = (byte)value; }
     int IMove.Quality { get => Quality ; set => Quality = (byte)value; }
@@ -34,4 +41,11 @@ public partial class Waza : IMove
     int IMove.Stat1Percent { get => Stat1Percent; set => Stat1Percent = (byte)value; }
     int IMove.Stat2Percent { get => Stat2Percent; set => Stat2Percent = (byte)value; }
     int IMove.Stat3Percent { get => Stat3Percent; set => Stat3Percent = (byte)value; }
+}
+
+public enum MoveDamageCategory : byte
+{
+    Status,
+    Physical,
+    Special,
 }
