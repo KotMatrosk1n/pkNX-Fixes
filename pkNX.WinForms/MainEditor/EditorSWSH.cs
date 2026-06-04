@@ -391,7 +391,7 @@ internal class EditorSWSH : EditorBase
 
         var arr = nest_drops.Table;
         var cache = new DataCache<NestHoleRewardTable>(arr!);
-        var names = arr.Select(z => $"{z.TableID}").ToArray();
+        var names = ConfigureRaidRewardEditor(data_table, arr, usesQuantities: false);
 
         void Randomize()
         {
@@ -421,7 +421,7 @@ internal class EditorSWSH : EditorBase
 
         var arr = nest_bonus.Table;
         var cache = new DataCache<NestHoleRewardTable>(arr!);
-        var names = arr.Select(z => $"{z.TableID}").ToArray();
+        var names = ConfigureRaidRewardEditor(data_table, arr, usesQuantities: true);
 
         void Randomize()
         {
@@ -440,6 +440,104 @@ internal class EditorSWSH : EditorBase
         var data = nest_bonus.SerializeFrom();
         data_table.SetDataFileName(nest, data);
         fp[0] = data_table.Write();
+    }
+
+    private string[] ConfigureRaidRewardEditor(GFPack dataTable, IList<NestHoleRewardTable> rewardTables, bool usesQuantities)
+    {
+        pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
+        ShopItemNameFormatter.MoveNames = ROM.GetStrings(TextName.MoveNames);
+        ShopItemNameFormatter.MachineTable = Item8MachineTable.FromItemData(ROM[GameFile.ItemStats][0]);
+        RaidPropertyGridUtil.ConfigureRewardEditor(usesQuantities, GetRaidRewardTableUsageLabels(dataTable, usesQuantities));
+        return rewardTables.Select(RaidPropertyGridUtil.GetRewardTableName).ToArray();
+    }
+
+    private IReadOnlyDictionary<ulong, string> GetRaidRewardTableUsageLabels(GFPack dataTable, bool bonusRewards)
+    {
+        try
+        {
+            const string nest = "nest_hole_encount.bin";
+            var encounters = FlatBufferConverter.DeserializeFrom<EncounterNestArchive>(dataTable.GetDataFileName(nest));
+            var speciesNames = ROM.GetStrings(TextName.SpeciesNames);
+            var references = new Dictionary<ulong, List<(string Version, int DenTable, int Slot, int MinStar, int MaxStar, string Species)>>();
+
+            foreach (var (table, tableIndex) in encounters.Table.Select((table, index) => (table, index)))
+            {
+                var version = GetShortGameVersion(table.GameVersion);
+                var denTable = tableIndex / 2;
+                foreach (var entry in table.Entries)
+                {
+                    var tableID = bonusRewards ? entry.BonusTableID : entry.DropTableID;
+                    if (tableID == 0)
+                        continue;
+
+                    if (!references.TryGetValue(tableID, out var list))
+                        references[tableID] = list = [];
+
+                    list.Add((version, denTable, entry.EntryIndex, GetRaidMinStar(entry), GetRaidMaxStar(entry), GetSpeciesName(entry, speciesNames)));
+                }
+            }
+
+            return references.ToDictionary(z => z.Key, z => SummarizeRewardTableUsage(z.Value));
+        }
+        catch
+        {
+            return new Dictionary<ulong, string>();
+        }
+    }
+
+    private static string SummarizeRewardTableUsage(IReadOnlyList<(string Version, int DenTable, int Slot, int MinStar, int MaxStar, string Species)> references)
+    {
+        var distinct = references.Distinct().ToArray();
+        if (distinct.Length <= 2)
+            return string.Join("; ", distinct.Select(FormatRewardTableUse));
+
+        var versions = distinct.Select(z => z.Version).Distinct().OrderBy(z => z).ToArray();
+        var versionText = versions is ["SH", "SW"] ? "SW/SH" : string.Join("/", versions);
+        var denCount = distinct.Select(z => (z.Version, z.DenTable)).Distinct().Count();
+        var speciesCount = distinct.Select(z => z.Species).Distinct().Count();
+        var starRefs = distinct.Where(z => z.MinStar > 0 && z.MaxStar > 0).ToArray();
+        var stars = starRefs.Length == 0 ? "No-star" : FormatRaidStarRange(starRefs.Min(z => z.MinStar), starRefs.Max(z => z.MaxStar));
+        var dens = denCount == 1 ? "1 den" : $"{denCount} dens";
+        var species = speciesCount == 1 ? "1 species" : $"{speciesCount} species";
+
+        return $"{versionText}, {distinct.Length} slots, {dens}, {stars}, {species}";
+    }
+
+    private static string FormatRewardTableUse((string Version, int DenTable, int Slot, int MinStar, int MaxStar, string Species) reference)
+    {
+        return $"{reference.Version} Den {reference.DenTable} Slot {reference.Slot:00}, {FormatRaidStarRange(reference.MinStar, reference.MaxStar)} {reference.Species}";
+    }
+
+    private static int GetRaidMinStar(EncounterNest entry) => entry.MinRank < 0 ? 0 : entry.MinRank + 1;
+
+    private static int GetRaidMaxStar(EncounterNest entry) => entry.MaxRank < 0 ? 0 : entry.MaxRank + 1;
+
+    private static string FormatRaidStarRange(int minStar, int maxStar)
+    {
+        if (minStar <= 0 || maxStar <= 0)
+            return "No-star";
+
+        return minStar == maxStar
+            ? $"{minStar}★"
+            : $"{minStar}-{maxStar}★";
+    }
+
+    private static string GetShortGameVersion(int version)
+    {
+        return version switch
+        {
+            1 => "SW",
+            2 => "SH",
+            _ => $"V{version}",
+        };
+    }
+
+    private static string GetSpeciesName(EncounterNest entry, IReadOnlyList<string> speciesNames)
+    {
+        var species = (uint)entry.Species < (uint)speciesNames.Count && !string.IsNullOrWhiteSpace(speciesNames[entry.Species])
+            ? speciesNames[entry.Species]
+            : entry.Species.ToString();
+        return entry.Form == 0 ? species : $"{species}-{entry.Form}";
     }
 
     public void EditStatic()

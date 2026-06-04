@@ -2,7 +2,7 @@ namespace pkNX.Structures.FlatBuffers.SWSH;
 
 public partial class NestHoleDistributionRewardTable : INestHoleRewardTable
 {
-    public IList<INestHoleReward> Rewards => (IList<INestHoleReward>)Entries;
+    public IList<INestHoleReward> Rewards => Entries.Cast<INestHoleReward>().ToList();
 }
 
 public partial class NestHoleDistributionReward : INestHoleReward

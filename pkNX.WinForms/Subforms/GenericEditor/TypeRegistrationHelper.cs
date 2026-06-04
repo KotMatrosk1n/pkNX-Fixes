@@ -173,6 +173,9 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
 
             if (RaidPropertyGridUtil.IsEncounterNestTable(objectType) && pd.Name == "TableID")
                 newProps.Add(new RaidPlacementUsagePropertyDescriptor());
+
+            if (RaidPropertyGridUtil.IsRewardTable(objectType) && pd.Name == "TableID")
+                newProps.Add(new RaidRewardTableUsagePropertyDescriptor());
         }
 
         return new PropertyDescriptorCollection(newProps.ToArray(), true);
@@ -249,6 +252,9 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
         if (IsPlacementFieldItemHashListProperty(listDescriptor))
             return new PlacementItemHashConverter();
 
+        if (IsRaidRewardEntryListProperty(listDescriptor))
+            return new RaidRewardEntryConverter();
+
         return TypeDescriptor.GetConverter(typeof(T));
     }
 
@@ -268,6 +274,13 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
     private static bool IsRaidListProperty(PropertyDescriptor listDescriptor)
     {
         return RaidPropertyGridUtil.IsRaidType(listDescriptor.ComponentType);
+    }
+
+    private static bool IsRaidRewardEntryListProperty(PropertyDescriptor listDescriptor)
+    {
+        return typeof(T).Name == "NestHoleReward" &&
+            listDescriptor.Name == "Entries" &&
+            RaidPropertyGridUtil.IsRewardTable(listDescriptor.ComponentType);
     }
 
     private static bool IsPlacementFieldItemHashListProperty(PropertyDescriptor listDescriptor)
@@ -324,6 +337,9 @@ public class ListTypeConverter<T>(PropertyDescriptor listDescriptor) : Expandabl
 
         if (IsShopItemList && item is int itemID)
             return ShopItemNameFormatter.GetDisplayName(itemID);
+
+        if (IsRaidList && RaidPropertyGridUtil.TryGetListItemSummary(item, out var raidSummary))
+            return raidSummary;
 
         if (item is T typedItem && ElementConverter.CanConvertTo(context, typeof(string)))
             return ElementConverter.ConvertToString(context, culture, typedItem) ?? string.Empty;
