@@ -44,14 +44,12 @@
             this.dgv.AllowUserToDeleteRows = false;
             this.dgv.AllowUserToResizeColumns = false;
             this.dgv.AllowUserToResizeRows = false;
-            this.dgv.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
-            | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
+            this.dgv.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)));
             this.dgv.CellBorderStyle = System.Windows.Forms.DataGridViewCellBorderStyle.SingleHorizontal;
             this.dgv.ColumnHeadersBorderStyle = System.Windows.Forms.DataGridViewHeaderBorderStyle.Single;
             this.dgv.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             this.dgv.EditMode = System.Windows.Forms.DataGridViewEditMode.EditOnEnter;
-            this.dgv.Location = new System.Drawing.Point(0, 29);
+            this.dgv.Location = new System.Drawing.Point(16, 48);
             this.dgv.MultiSelect = false;
             this.dgv.Name = "dgv";
             this.dgv.RowHeadersVisible = false;
@@ -60,15 +58,15 @@
             this.dgv.ShowCellToolTips = false;
             this.dgv.ShowEditingIcon = false;
             this.dgv.ShowRowErrors = false;
-            this.dgv.Size = new System.Drawing.Size(300, 291);
+            this.dgv.Size = new System.Drawing.Size(420, 586);
             this.dgv.TabIndex = 2;
             this.dgv.CurrentCellDirtyStateChanged += new System.EventHandler(this.CurrentCellDirtyStateChanged);
             // 
             // NUD_Min
             // 
-            this.NUD_Min.Location = new System.Drawing.Point(62, 3);
+            this.NUD_Min.Location = new System.Drawing.Point(84, 13);
             this.NUD_Min.Name = "NUD_Min";
-            this.NUD_Min.Size = new System.Drawing.Size(38, 20);
+            this.NUD_Min.Size = new System.Drawing.Size(52, 20);
             this.NUD_Min.TabIndex = 3;
             this.NUD_Min.Value = new decimal(new int[] {
             100,
@@ -79,7 +77,7 @@
             // L_LevelMin
             // 
             this.L_LevelMin.AutoSize = true;
-            this.L_LevelMin.Location = new System.Drawing.Point(3, 5);
+            this.L_LevelMin.Location = new System.Drawing.Point(16, 15);
             this.L_LevelMin.Name = "L_LevelMin";
             this.L_LevelMin.Size = new System.Drawing.Size(53, 13);
             this.L_LevelMin.TabIndex = 4;
@@ -88,7 +86,7 @@
             // L_LevelMax
             // 
             this.L_LevelMax.AutoSize = true;
-            this.L_LevelMax.Location = new System.Drawing.Point(113, 5);
+            this.L_LevelMax.Location = new System.Drawing.Point(200, 15);
             this.L_LevelMax.Name = "L_LevelMax";
             this.L_LevelMax.Size = new System.Drawing.Size(56, 13);
             this.L_LevelMax.TabIndex = 5;
@@ -96,9 +94,9 @@
             // 
             // NUD_Max
             // 
-            this.NUD_Max.Location = new System.Drawing.Point(172, 3);
+            this.NUD_Max.Location = new System.Drawing.Point(270, 13);
             this.NUD_Max.Name = "NUD_Max";
-            this.NUD_Max.Size = new System.Drawing.Size(38, 20);
+            this.NUD_Max.Size = new System.Drawing.Size(52, 20);
             this.NUD_Max.TabIndex = 6;
             this.NUD_Max.Value = new decimal(new int[] {
             100,
@@ -116,7 +114,7 @@
             this.Controls.Add(this.NUD_Min);
             this.Controls.Add(this.dgv);
             this.Name = "EncounterList8";
-            this.Size = new System.Drawing.Size(300, 320);
+            this.Size = new System.Drawing.Size(452, 650);
             ((System.ComponentModel.ISupportInitialize)(this.dgv)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.NUD_Min)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.NUD_Max)).EndInit();

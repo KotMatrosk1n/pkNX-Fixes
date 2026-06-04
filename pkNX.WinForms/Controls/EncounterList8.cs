@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Drawing.PokeSprite;
 using pkNX.Structures.FlatBuffers.SWSH;
@@ -14,25 +15,33 @@ public partial class EncounterList8 : UserControl
 
     public EncounterList8() => InitializeComponent();
 
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        LayoutEncounterGrid();
+    }
+
     public void Initialize()
     {
         var dgvPicture = new DataGridViewImageColumn
         {
             HeaderText = "Sprite",
             DisplayIndex = 0,
-            Width = SpriteUtil.Spriter.Width + 2,
+            Width = Math.Max(72, SpriteUtil.Spriter.Width + 20),
             DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter },
             ReadOnly = true,
         };
         var padding = SpriteUtil.Spriter.Height > 40
             ? new Padding(0, (SpriteUtil.Spriter.Height / 2) - 8, 0, 0)
             : new Padding(0);
+        var speciesPadding = new Padding(8, padding.Top, 0, 0);
         var dgvSpecies = new DataGridViewComboBoxColumn
         {
             HeaderText = "Species",
             DisplayIndex = 1,
-            Width = 135,
-            DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter, Padding = padding},
+            Width = 190,
+            MinimumWidth = 160,
+            DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleLeft, Padding = speciesPadding },
             FlatStyle = FlatStyle.Flat,
         };
         var dgvForm = new DataGridViewTextBoxColumn
@@ -40,14 +49,14 @@ public partial class EncounterList8 : UserControl
             Name = FormColumn,
             HeaderText = "Form",
             DisplayIndex = 2,
-            Width = 45,
+            Width = 64,
             DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter },
         };
         var dgvPercent = new DataGridViewTextBoxColumn
         {
             HeaderText = "Chance",
             DisplayIndex = 3,
-            Width = 52,
+            Width = 72,
             DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter },
         };
 
@@ -64,7 +73,29 @@ public partial class EncounterList8 : UserControl
                 return;
             UpdateRowImage(e.RowIndex);
         };
+        LayoutEncounterGrid();
         dgv.Columns[0].DefaultCellStyle.SelectionBackColor = dgv.DefaultCellStyle.BackColor;
+    }
+
+    private void LayoutEncounterGrid()
+    {
+        if (dgv is null)
+            return;
+
+        var availableWidth = Math.Max(1, Width - (dgv.Left * 2));
+        var availableHeight = Math.Max(1, Height - dgv.Top - 16);
+        var preferredWidth = dgv.Columns.Cast<DataGridViewColumn>().Sum(c => c.Width) + 3;
+        var preferredHeight = dgv.ColumnHeadersHeight + dgv.Rows.Cast<DataGridViewRow>().Sum(r => r.Height) + 3;
+
+        dgv.Size = new System.Drawing.Size(
+            Math.Min(availableWidth, Math.Max(1, preferredWidth)),
+            Math.Min(availableHeight, Math.Max(1, preferredHeight)));
+    }
+
+    public System.Drawing.Size GetPreferredEditorSize()
+    {
+        LayoutEncounterGrid();
+        return new System.Drawing.Size(dgv.Right + dgv.Left, dgv.Bottom + 16);
     }
 
     private void UpdateRowImage(int row)
@@ -99,6 +130,7 @@ public partial class EncounterList8 : UserControl
         }
 
         dgv.CancelEdit();
+        LayoutEncounterGrid();
     }
 
     public void SaveCurrent()
