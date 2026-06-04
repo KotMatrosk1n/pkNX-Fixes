@@ -52,7 +52,7 @@ public static class TypeRegistrationHelper
                 return;
         }
 
-        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type);
+        var registeredProvider = IsShopType(type) || PlacementPropertyGridUtil.IsPlacementType(type) || RaidPropertyGridUtil.IsRaidType(type) || MovePropertyGridUtil.IsMoveType(type);
         if (registeredProvider)
             AddProvider(type);
 
@@ -154,6 +154,9 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
             if (pd.Name == "Hash" && TypeRegistrationHelper.IsShopType(objectType))
                 continue;
 
+            if (MovePropertyGridUtil.ShouldHide(objectType, pd.Name))
+                continue;
+
             if (RaidPropertyGridUtil.ShouldHide(objectType, pd.Name))
                 continue;
 
@@ -163,6 +166,8 @@ public class DynamicListTypeDescriptor(ICustomTypeDescriptor? parent, Type objec
                 newProps.Add(new PlacementPropertyDescriptor(pd));
             else if (RaidPropertyGridUtil.IsRaidType(objectType))
                 newProps.Add(new RaidPropertyDescriptor(pd));
+            else if (MovePropertyGridUtil.IsMoveType(objectType))
+                newProps.Add(new MovePropertyDescriptor(pd));
             else
                 newProps.Add(pd);
 
