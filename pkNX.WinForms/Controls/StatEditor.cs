@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using pkNX.WinForms;
 using pkNX.Structures;
 using Util = pkNX.Randomization.Util;
 
@@ -92,13 +93,13 @@ public partial class StatEditor : UserControl
         int decr = (PKM.Nature % 5);
         // Reset Label Colors
         foreach (Label label in labarray)
-            label.ResetForeColor();
+            label.ForeColor = WinFormsTheme.Text;
 
         // Set Colored StatLabels only if Nature isn't Neutral
         if (incr != decr)
         {
-            labarray[incr].ForeColor = Color.Red;
-            labarray[decr].ForeColor = Color.Blue;
+            labarray[incr].ForeColor = Color.FromArgb(255, 134, 134);
+            labarray[decr].ForeColor = Color.FromArgb(132, 177, 255);
         }
     }
 

@@ -15,6 +15,8 @@ namespace pkNX.WinForms;
 
 public partial class BTTE : Form
 {
+    private const int TrainerHeaderHeight = 42;
+
     private readonly LearnsetRandomizer learn;
     private readonly string[][] AltForms;
     private readonly PictureBox[] pba;
@@ -38,6 +40,22 @@ public partial class BTTE : Form
     private readonly string[] trClass;
 
     private readonly CheckBox[] AIBits;
+    private readonly List<SearchableComboBoxBehavior> SearchableCombos = [];
+    private readonly Dictionary<TeamSpriteKey, Image> TeamSpriteCache = [];
+    private bool[] TrainerClassHasSingleOwner = [];
+    private readonly Label L_ClassBall = new();
+    private readonly ComboBox CB_ClassBall = new();
+    private readonly ToolTip TrainerToolTip = new()
+    {
+        AutoPopDelay = 12000,
+        InitialDelay = 500,
+        ReshowDelay = 100,
+        ShowAlways = true,
+        BackColor = WinFormsTheme.PanelBackground,
+        ForeColor = WinFormsTheme.Text,
+    };
+    private bool CloseConfirmed;
+    private bool UpdatingMoneyItems;
 
     public BTTE(GameData data, TrainerEditor editor, GameManager game)
     {
@@ -70,11 +88,14 @@ public partial class BTTE : Form
             ? [CHK_AI_Basic, CHK_AI_Strong, CHK_AI_Expert, CHK_AI_Double, CHK_AI_Raid, CHK_AI_Allowance, CHK_AI_PokeChange, CHK_AI_FireGym1, CHK_AI_FireGym2, CHK_AI_Unused1, CHK_AI_Item, CHK_AI_FireGym3, CHK_AI_Unused2]
             : [CHK_AI_Basic, CHK_AI_Strong, CHK_AI_Expert, CHK_AI_Double, CHK_AI_Allowance, CHK_AI_Item, CHK_AI_PokeChange,                                   CHK_AI_Unused1];
 
+        InitializeTrainerClassOwnership();
+        SetupTrainerClassBallControl();
         Setup();
         foreach (var pb in pba)
             pb.Click += (_, e) => ClickSlot(pb, e);
 
-        CB_TrainerID.SelectedIndex = 0;
+        if (CB_TrainerID.SelectedIndex < 0)
+            CB_TrainerID.SelectedIndex = 0;
 
         PG_Moves.SelectedObject = EditUtil.Settings.Move;
         PG_RTrainer.SelectedObject = EditUtil.Settings.Trainer;
@@ -82,9 +103,387 @@ public partial class BTTE : Form
 
         L_Gift.Visible = CB_Gift.Visible = NUD_GiftCount.Visible = Game.Info.GG;
         GB_Additional_AI.Visible = Game.Info.SWSH;
+
+        ApplyTrainerEditorTheme();
+        ConfigureSearchableDropdowns();
+        ConfigureTrainerToolTips();
+        CB_Money.SelectedIndexChanged += (_, _) =>
+        {
+            if (!UpdatingMoneyItems)
+                UpdateMoneyToolTip();
+        };
+        CB_Trainer_Class.SelectedIndexChanged += (_, _) => LoadTrainerClassBall();
+        Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
+        {
+            CB_TrainerID.Focus();
+            CB_TrainerID.SelectAll();
+        }));
     }
 
     public bool Modified { get; set; }
+
+    private void ApplyTrainerEditorTheme()
+    {
+        WinFormsTheme.Apply(this);
+        WinFormsTheme.Apply(mnuVSD);
+        AddTrainerEditorHeader();
+        PolishTrainerEditorColors();
+    }
+
+    private void AddTrainerEditorHeader()
+    {
+        var dataTabBounds = TC_trdata.Bounds;
+        var pokeTabBounds = TC_trpoke.Bounds;
+        var dataNativeTabHeight = Math.Max(1, TC_trdata.DisplayRectangle.Top);
+        var pokeNativeTabHeight = Math.Max(1, TC_trpoke.DisplayRectangle.Top);
+        var dataTop = TrainerHeaderHeight - dataNativeTabHeight;
+        var pokeTop = TrainerHeaderHeight - pokeNativeTabHeight;
+
+        TC_trdata.Bounds = new Rectangle(dataTabBounds.Left, dataTop, dataTabBounds.Width, Math.Max(1, dataTabBounds.Bottom - dataTop));
+        TC_trpoke.Bounds = new Rectangle(pokeTabBounds.Left, pokeTop, pokeTabBounds.Width, Math.Max(1, pokeTabBounds.Bottom - pokeTop));
+
+        var header = new Panel
+        {
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = WinFormsTheme.WindowBackground,
+            Bounds = new Rectangle(0, 0, ClientSize.Width, TrainerHeaderHeight),
+        };
+        header.Paint += (_, e) =>
+        {
+            using var border = new Pen(WinFormsTheme.Border);
+            e.Graphics.DrawLine(border, 0, header.Height - 1, header.Width, header.Height - 1);
+        };
+
+        Controls.Remove(CB_TrainerID);
+        Controls.Remove(B_Save);
+        header.Controls.Add(CB_TrainerID);
+        header.Controls.Add(B_Save);
+
+        var trainerTabs = WinFormsTheme.AddThemedTabButtons(header, TC_trdata, 6, 8, 28, 60, 18);
+        var pokemonTabs = WinFormsTheme.AddThemedTabButtons(header, TC_trpoke, 0, 8, 28, 58, 18);
+        LayoutTrainerEditorHeader(header, trainerTabs, pokemonTabs);
+        header.Resize += (_, _) => LayoutTrainerEditorHeader(header, trainerTabs, pokemonTabs);
+
+        Controls.Add(header);
+        header.BringToFront();
+    }
+
+    private void LayoutTrainerEditorHeader(Control header, IReadOnlyList<Button> trainerTabs, IReadOnlyList<Button> pokemonTabs)
+    {
+        const int padding = 6;
+        const int gap = 8;
+        const int controlTop = 8;
+        const int controlHeight = 28;
+
+        B_Save.Size = new Size(92, controlHeight);
+        B_Save.Location = new Point(header.Width - B_Save.Width - padding, controlTop);
+
+        var pokemonTabWidth = pokemonTabs.Count == 0 ? 0 : pokemonTabs[^1].Right - pokemonTabs[0].Left;
+        var pokemonLeft = Math.Max(0, B_Save.Left - gap - pokemonTabWidth);
+        for (var i = 0; i < pokemonTabs.Count; i++)
+        {
+            var button = pokemonTabs[i];
+            button.Location = i == 0
+                ? new Point(pokemonLeft, controlTop)
+                : new Point(pokemonTabs[i - 1].Right + 2, controlTop);
+        }
+
+        var trainerRight = trainerTabs.Count == 0 ? padding : trainerTabs[^1].Right;
+        var selectorLeft = trainerRight + gap;
+        var selectorRight = pokemonTabs.Count == 0 ? B_Save.Left - gap : pokemonTabs[0].Left - gap;
+        CB_TrainerID.Location = new Point(selectorLeft, controlTop + 1);
+        CB_TrainerID.Size = new Size(Math.Max(120, selectorRight - selectorLeft), 23);
+    }
+
+    private void PolishTrainerEditorColors()
+    {
+        foreach (var page in new[] { Tab_Trainer, Tab_Rand, Tab_Main, Tab_Stats, Tab_Moves, Tab_RTrainer, Tab_RSpecies, Tab_RMoves, Tab_Mods })
+            page.BackColor = WinFormsTheme.PanelBackground;
+
+        foreach (var group in new[] { GB_Items, GB_AI, GB_Additional_AI, GB_Moves })
+        {
+            group.BackColor = WinFormsTheme.PanelBackground;
+            group.ForeColor = WinFormsTheme.Text;
+        }
+
+        foreach (var panel in new[] { flowLayoutPanel2, FLP_Species, FLP_Form, FLP_LevelShiny, FLP_Ability, FLP_HeldItem, FLP_Nature, FLP_Gender, FLP_Friendship, FLP_Mega, FLP_CanDynamax })
+        {
+            panel.BackColor = WinFormsTheme.PanelBackground;
+            panel.ForeColor = WinFormsTheme.Text;
+        }
+
+        Stats.BackColor = WinFormsTheme.PanelBackground;
+        Stats.ForeColor = WinFormsTheme.Text;
+
+        foreach (var pb in pba)
+        {
+            pb.BackColor = WinFormsTheme.InputBackground;
+            pb.BorderStyle = BorderStyle.FixedSingle;
+        }
+
+        if (Game.Info.SWSH)
+            LayoutTrainerMetadataControls();
+    }
+
+    private void SetupTrainerClassBallControl()
+    {
+        if (!Game.Info.SWSH)
+            return;
+
+        L_ClassBall.Name = nameof(L_ClassBall);
+        L_ClassBall.Text = "Class Ball:";
+
+        CB_ClassBall.DropDownStyle = ComboBoxStyle.DropDownList;
+        CB_ClassBall.FormattingEnabled = true;
+        CB_ClassBall.Name = nameof(CB_ClassBall);
+        CB_ClassBall.Items.AddRange(GetTrainerBallNames());
+        CB_ClassBall.SelectedIndexChanged += (_, _) =>
+        {
+            if (!loading)
+                SaveTrainerClassBall(CB_Trainer_Class.SelectedIndex);
+            UpdateClassBallToolTip();
+        };
+
+        Tab_Trainer.Controls.Add(L_ClassBall);
+        Tab_Trainer.Controls.Add(CB_ClassBall);
+        LayoutTrainerMetadataControls();
+        SetTrainerClassBallVisible(false);
+    }
+
+    private void LayoutTrainerMetadataControls()
+    {
+        Tab_Trainer.AutoScroll = true;
+        Tab_Trainer.AutoScrollMinSize = new Size(0, 390);
+
+        const int labelX = 8;
+        const int labelWidth = 96;
+        const int inputX = 112;
+        const int inputHeight = 23;
+        const int fullInputWidth = 240;
+        const int row1 = 12;
+        const int row2 = 42;
+        const int row3 = 72;
+
+        PlaceMetadataLabel(L_Trainer_Class, labelX, row1, labelWidth, inputHeight);
+        CB_Trainer_Class.Location = new Point(inputX, row1);
+        CB_Trainer_Class.Size = new Size(fullInputWidth, inputHeight);
+
+        PlaceMetadataLabel(L_Money, labelX, row2, labelWidth, inputHeight);
+        CB_Money.Location = new Point(inputX, row2);
+        CB_Money.Size = new Size(94, inputHeight);
+        CB_Money.DropDownWidth = CB_Money.Width;
+
+        PlaceMetadataLabel(L_Mode, 214, row2, 48, inputHeight);
+        CB_Mode.Location = new Point(268, row2);
+        CB_Mode.Size = new Size(84, inputHeight);
+
+        PlaceMetadataLabel(L_ClassBall, labelX, row3, labelWidth, inputHeight);
+        CB_ClassBall.Location = new Point(inputX, row3);
+        CB_ClassBall.Size = new Size(fullInputWidth, inputHeight);
+
+        GB_Items.Top = 132;
+        GB_AI.Top = GB_Items.Top;
+        GB_Additional_AI.Left = GB_Items.Left;
+        GB_Additional_AI.Width = GB_Items.Width;
+        GB_Additional_AI.Top = GB_Items.Bottom + 34;
+    }
+
+    private static void PlaceMetadataLabel(Label label, int x, int y, int width, int height)
+    {
+        label.AutoSize = false;
+        label.Location = new Point(x, y);
+        label.Size = new Size(width, height);
+        label.TextAlign = ContentAlignment.MiddleRight;
+        label.BackColor = Color.Transparent;
+    }
+
+    private void SetTrainerClassBallVisible(bool visible)
+    {
+        L_ClassBall.Visible = visible;
+        CB_ClassBall.Visible = visible;
+        CB_ClassBall.Enabled = visible;
+    }
+
+    private static object[] GetTrainerBallNames() => Enumerable.Range(0, (int)Ball.Beast + 1)
+        .Select(z => FormatTrainerBallName((Ball)z))
+        .Cast<object>()
+        .ToArray();
+
+    private static string FormatTrainerBallName(Ball ball)
+    {
+        if (ball == Ball.None)
+            return "None (0)";
+
+        var name = ball switch
+        {
+            Ball.Poke => "Poke Ball",
+            Ball.LAPoke => "LA Poke Ball",
+            Ball.LAGreat => "LA Great Ball",
+            Ball.LAUltra => "LA Ultra Ball",
+            Ball.LAFeather => "LA Feather Ball",
+            Ball.LAWing => "LA Wing Ball",
+            Ball.LAJet => "LA Jet Ball",
+            Ball.LAHeavy => "LA Heavy Ball",
+            Ball.LALeaden => "LA Leaden Ball",
+            Ball.LAGigaton => "LA Gigaton Ball",
+            Ball.LAOrigin => "LA Origin Ball",
+            _ => $"{ball} Ball",
+        };
+        return $"{name} ({(int)ball})";
+    }
+
+    private void InitializeTrainerClassOwnership()
+    {
+        if (!Game.Info.SWSH)
+            return;
+
+        var count = Math.Max(Trainers.TrainerClass.Count, trClass.Length);
+        var owners = Enumerable.Range(0, count).Select(_ => new HashSet<string>()).ToArray();
+        for (int i = 0; i < Trainers.TrainerData.Count; i++)
+        {
+            var trainer = Trainers.ReadTrainer(Trainers.TrainerData[i]);
+            if ((uint)trainer.Class >= (uint)owners.Length)
+                continue;
+
+            var name = (uint)i < (uint)trName.Length ? trName[i].Trim() : string.Empty;
+            owners[trainer.Class].Add(string.IsNullOrWhiteSpace(name) ? $"#{i}" : name);
+        }
+
+        TrainerClassHasSingleOwner = owners.Select(z => z.Count == 1).ToArray();
+    }
+
+    private bool CanEditTrainerClassBall(int classIndex) =>
+        Game.Info.SWSH
+        && (uint)classIndex < (uint)Trainers.TrainerClass.Count
+        && (uint)classIndex < (uint)TrainerClassHasSingleOwner.Length
+        && TrainerClassHasSingleOwner[classIndex];
+
+    private void ConfigureSearchableDropdowns()
+    {
+        RegisterSearch(CB_TrainerID);
+        RegisterSearch(CB_Trainer_Class);
+        RegisterSearch(CB_Money);
+        if (Game.Info.SWSH)
+            RegisterSearch(CB_ClassBall);
+        RegisterSearch(CB_Species);
+        RegisterSearch(CB_Item);
+        RegisterSearch(CB_Item_1);
+        RegisterSearch(CB_Item_2);
+        RegisterSearch(CB_Item_3);
+        RegisterSearch(CB_Item_4);
+        RegisterSearch(CB_Gift);
+        RegisterSearch(CB_Move1);
+        RegisterSearch(CB_Move2);
+        RegisterSearch(CB_Move3);
+        RegisterSearch(CB_Move4);
+        RegisterSearch(CB_Nature);
+    }
+
+    private void RegisterSearch(ComboBox comboBox) => SearchableCombos.Add(new SearchableComboBoxBehavior(this, comboBox));
+
+    private void ConfigureTrainerToolTips()
+    {
+        TrainerToolTip.SetToolTip(CB_TrainerID, "Type to search trainers by name or index.");
+        TrainerToolTip.SetToolTip(CB_Trainer_Class, "Trainer class shown before the trainer name in battle.");
+        UpdateMoneyToolTip();
+        UpdateClassBallToolTip();
+        TrainerToolTip.SetToolTip(CB_Mode, "Battle format for this trainer encounter.");
+        TrainerToolTip.SetToolTip(B_Save, "Save trainer edits to the loaded project and close the editor.");
+        TrainerToolTip.SetToolTip(B_Randomize, "Randomize trainers using the selected randomizer options.");
+        TrainerToolTip.SetToolTip(B_Boost, "Apply the configured level boost to every trainer Pokemon.");
+        TrainerToolTip.SetToolTip(B_MaxAI, "Enable the strongest known AI flags for every trainer.");
+        TrainerToolTip.SetToolTip(B_Dump, "Export a text summary of trainer teams.");
+        TrainerToolTip.SetToolTip(B_CurrentAttack, "Fill this Pokemon's moves with its current level-up moves.");
+        TrainerToolTip.SetToolTip(B_HighAttack, "Fill this Pokemon's moves with high-power level-up moves.");
+        TrainerToolTip.SetToolTip(B_Clear, "Clear all four moves for this Pokemon.");
+        TrainerToolTip.SetToolTip(Stats.CHK_Gigantamax, "Lets this trainer Pokemon use its Gigantamax form when Dynamax is allowed.");
+
+        foreach (var pb in pba)
+            TrainerToolTip.SetToolTip(pb, "Right-click for View, Set, and Delete. Ctrl-click views, Shift-click sets, Alt-click deletes.");
+
+        mnuView.ToolTipText = "Load this team slot into the editor fields.";
+        mnuSet.ToolTipText = "Write the current editor fields into this team slot.";
+        mnuDelete.ToolTipText = "Remove this team slot and shift later Pokemon left.";
+
+        SetAIToolTip(CHK_AI_Basic, "Basic battle decisions.");
+        SetAIToolTip(CHK_AI_Strong, "Uses stronger move-selection logic.");
+        SetAIToolTip(CHK_AI_Expert, "Uses advanced battle decision logic.");
+        SetAIToolTip(CHK_AI_Double, "Enables double-battle aware decisions.");
+        SetAIToolTip(CHK_AI_Raid, "Raid-style AI behavior used by some Sword/Shield encounters.");
+        SetAIToolTip(CHK_AI_Allowance, "Known trainer AI bit 4. Existing pkNX names it Allowance; exact battle behavior is not documented, so preserve it unless you are testing AI changes.");
+        SetAIToolTip(CHK_AI_Item, "Allows the trainer AI to use battle items.");
+        SetAIToolTip(CHK_AI_PokeChange, "Allows the trainer AI to switch Pokemon.");
+        SetAIToolTip(CHK_AI_FireGym1, "Sword/Shield gym-specific AI flag used by Fire Gym trainers.");
+        SetAIToolTip(CHK_AI_FireGym2, "Sword/Shield gym-specific AI flag used by Fire Gym trainers.");
+        SetAIToolTip(CHK_AI_FireGym3, "Sword/Shield gym-specific AI flag used by Fire Gym trainers.");
+        SetAIToolTip(CHK_AI_Unused1, "Unknown or currently unused AI flag.");
+        SetAIToolTip(CHK_AI_Unused2, "Unknown or currently unused AI flag.");
+    }
+
+    private void SetAIToolTip(CheckBox checkBox, string text) => TrainerToolTip.SetToolTip(checkBox, text);
+
+    private void SetMoneyItemsForLevel(int highestLevel)
+    {
+        highestLevel = Math.Max(0, highestLevel);
+        if (CB_Money.Items.Count == 256 && CB_Money.Tag is int currentLevel && currentLevel == highestLevel)
+            return;
+
+        var selected = Math.Clamp(CB_Money.SelectedIndex, 0, 255);
+
+        UpdatingMoneyItems = true;
+        CB_Money.BeginUpdate();
+        CB_Money.Items.Clear();
+        CB_Money.Items.AddRange(Enumerable.Range(0, 256).Select(z => $"${GetTrainerPayout(highestLevel, z):N0}").Cast<object>().ToArray());
+        CB_Money.EndUpdate();
+        CB_Money.SelectedIndex = selected;
+        CB_Money.Tag = highestLevel;
+        UpdatingMoneyItems = false;
+    }
+
+    private void UpdateMoneyItemsForTrainer(int trainerIndex)
+    {
+        var highestLevel = GetHighestTeamLevel(trainerIndex);
+        SetMoneyItemsForLevel(highestLevel);
+    }
+
+    private void UpdateMoneyToolTip()
+    {
+        var rate = Math.Max(0, CB_Money.SelectedIndex);
+        var highestLevel = GetHighestTeamLevel(entry);
+        var payout = GetTrainerPayout(highestLevel, rate);
+        TrainerToolTip.SetToolTip(
+            CB_Money,
+            $"Prize payout rate stored per trainer.\n\nEstimated Sword/Shield payout: rate {rate} x highest team level {highestLevel} x 4 = ${payout:N0}.\nChange this Money value or the trainer team's levels to change the payout.");
+    }
+
+    private void UpdateClassBallToolTip()
+    {
+        if (!Game.Info.SWSH)
+            return;
+
+        var classIndex = CB_Trainer_Class.SelectedIndex;
+        var ballIndex = CB_ClassBall.SelectedIndex;
+        var className = (uint)classIndex < (uint)CB_Trainer_Class.Items.Count
+            ? CB_Trainer_Class.GetItemText(CB_Trainer_Class.Items[classIndex])
+            : "this class";
+        var ballName = (uint)ballIndex < (uint)CB_ClassBall.Items.Count
+            ? CB_ClassBall.GetItemText(CB_ClassBall.Items[ballIndex])
+            : "Unknown";
+
+        TrainerToolTip.SetToolTip(
+            CB_ClassBall,
+            $"Ball assigned by trainer class.\n\nCurrent class: {className}\nCurrent ball: {ballName}\nThis is stored on the trainer class record, so trainers that share the same class can share this ball setting.");
+    }
+
+    private int GetHighestTeamLevel(int trainerIndex)
+    {
+        if ((uint)trainerIndex >= (uint)Trainers.Length)
+            return 0;
+
+        return Trainers[trainerIndex].Team.Select(z => z.Level).DefaultIfEmpty(0).Max();
+    }
+
+    private static int GetTrainerPayout(int highestLevel, int rate) => highestLevel * rate * 4;
 
     private int GetSlot(object sender)
     {
@@ -145,6 +544,7 @@ public partial class BTTE : Form
 
         GetQuickFiller(pba[slot], pk);
         GetSlotColor(slot, PKHeX.Drawing.PokeSprite.Properties.Resources.slotSet68);
+        RefreshMoneyDisplayForCurrentTrainer();
     }
 
     private void ClickDelete(object sender, EventArgs e)
@@ -156,6 +556,7 @@ public partial class BTTE : Form
 
         PopulateTeam(Trainers[entry].Team);
         GetSlotColor(slot, PKHeX.Drawing.PokeSprite.Properties.Resources.slotDel68);
+        RefreshMoneyDisplayForCurrentTrainer();
     }
 
     private void PopulateTeam(IList<TrainerPoke> team)
@@ -174,10 +575,23 @@ public partial class BTTE : Form
         pba[slot].BackgroundImage = color;
     }
 
-    private static void GetQuickFiller(PictureBox pb, TrainerPoke pk)
+    private void RefreshMoneyDisplayForCurrentTrainer()
+    {
+        UpdateMoneyItemsForTrainer(entry);
+        UpdateMoneyToolTip();
+    }
+
+    private void GetQuickFiller(PictureBox pb, TrainerPoke pk)
     {
         var shiny = pk.Shiny ? PKHeX.Core.Shiny.Always : PKHeX.Core.Shiny.Never;
-        pb.Image = SpriteUtil.GetSprite((ushort)pk.Species, (byte)pk.Form, (byte)(pk.Gender - 1), 0, pk.HeldItem, false, shiny);
+        var key = new TeamSpriteKey((ushort)pk.Species, (byte)pk.Form, (byte)(pk.Gender - 1), pk.HeldItem, pk.Shiny);
+        if (!TeamSpriteCache.TryGetValue(key, out var image))
+        {
+            image = SpriteUtil.GetSprite(key.Species, key.Form, key.Gender, 0, key.HeldItem, false, shiny);
+            TeamSpriteCache[key] = image;
+        }
+
+        pb.Image = image;
     }
 
     // Top Level Functions
@@ -266,7 +680,7 @@ public partial class BTTE : Form
         CB_Item_4.Items.AddRange(itemlist);
         CB_Gift.Items.AddRange(itemlist);
 
-        CB_Money.Items.AddRange(Enumerable.Range(0, 256).Select(z => z.ToString()).ToArray());
+        SetMoneyItemsForLevel(0);
         CHK_CanMega.CheckedChanged += (s, e) => NUD_MegaForm.Visible = CHK_CanMega.Checked;
         NUD_MegaForm.Visible = false;
 
@@ -299,10 +713,42 @@ public partial class BTTE : Form
         var tr = Trainers[entry];
 
         loading = true;
+        SuspendTrainerLayout();
+        try
+        {
+            UpdateMoneyItemsForTrainer(entry);
+            PopulateFieldsTrainer(tr.Self);
+            PopulateTeam(tr.Team);
+            UpdateMoneyToolTip();
+        }
+        finally
+        {
+            ResumeTrainerLayout();
+            loading = false;
+        }
+    }
 
-        PopulateFieldsTrainer(tr.Self);
-        PopulateTeam(tr.Team);
-        loading = false;
+    private void SuspendTrainerLayout()
+    {
+        SuspendLayout();
+        TC_trdata.SuspendLayout();
+        TC_trpoke.SuspendLayout();
+        Tab_Trainer.SuspendLayout();
+        Tab_Main.SuspendLayout();
+        Tab_Stats.SuspendLayout();
+        Tab_Moves.SuspendLayout();
+    }
+
+    private void ResumeTrainerLayout()
+    {
+        Tab_Moves.ResumeLayout(false);
+        Tab_Stats.ResumeLayout(false);
+        Tab_Main.ResumeLayout(false);
+        Tab_Trainer.ResumeLayout(false);
+        Tab_Trainer.PerformLayout();
+        TC_trpoke.ResumeLayout(false);
+        TC_trdata.ResumeLayout(false);
+        ResumeLayout(false);
     }
 
     private void UpdateTrainerName(object sender, EventArgs e)
@@ -400,6 +846,7 @@ public partial class BTTE : Form
 
         // Load Trainer Data
         CB_Trainer_Class.SelectedIndex = tr.Class;
+        LoadTrainerClassBall();
         CB_Item_1.SelectedIndex = tr.Item1;
         CB_Item_2.SelectedIndex = tr.Item2;
         CB_Item_3.SelectedIndex = tr.Item3;
@@ -414,9 +861,40 @@ public partial class BTTE : Form
         }
     }
 
+    private void LoadTrainerClassBall()
+    {
+        if (!Game.Info.SWSH)
+            return;
+
+        var classIndex = CB_Trainer_Class.SelectedIndex;
+        if (CB_ClassBall.Items.Count == 0 || !CanEditTrainerClassBall(classIndex))
+        {
+            SetTrainerClassBallVisible(false);
+            if (CB_ClassBall.Items.Count != 0)
+                CB_ClassBall.SelectedIndex = 0;
+            UpdateClassBallToolTip();
+            return;
+        }
+
+        var trainerClass = Trainers.GetClass(classIndex);
+        var ball = Math.Clamp(trainerClass.BallID, 0, CB_ClassBall.Items.Count - 1);
+        SetTrainerClassBallVisible(true);
+        CB_ClassBall.SelectedIndex = ball;
+        UpdateClassBallToolTip();
+    }
+
+    private void SaveTrainerClassBall(int classIndex)
+    {
+        if (!CB_ClassBall.Visible || !CanEditTrainerClassBall(classIndex))
+            return;
+
+        Trainers.GetClass(classIndex).BallID = CB_ClassBall.SelectedIndex;
+    }
+
     private void PrepareTrainer(TrainerData tr)
     {
         tr.Class = CB_Trainer_Class.SelectedIndex;
+        SaveTrainerClassBall(tr.Class);
         tr.Item1 = CB_Item_1.SelectedIndex;
         tr.Item2 = CB_Item_2.SelectedIndex;
         tr.Item3 = CB_Item_3.SelectedIndex;
@@ -452,12 +930,21 @@ public partial class BTTE : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (!CloseConfirmed && e.CloseReason == CloseReason.UserClosing && !ConfirmCloseWithoutSaving())
+        {
+            e.Cancel = true;
+            return;
+        }
+
         SaveEntry();
         base.OnFormClosing(e);
     }
 
     private void DumpTxt(object sender, EventArgs e)
     {
+        if (!ConfirmDump())
+            return;
+
         using var sfd = new SaveFileDialog { FileName = "Trainers.txt" };
         if (sfd.ShowDialog() != DialogResult.OK)
             return;
@@ -485,6 +972,7 @@ public partial class BTTE : Form
         sb.Append(file).Append(" - ").Append(trClass[tr.Class]).Append(' ').AppendLine(name);
         sb.AppendLine("======");
         sb.Append("Pokémon: ").Append(tr.NumPokemon).AppendLine();
+        sb.Append("Money Rate: ").Append(tr.Money).Append(" (Estimated Payout: ").Append(GetTrainerPayout(team, tr.Money)).Append(')').AppendLine();
         for (int i = 0; i < tr.NumPokemon; i++)
         {
             var pk = team[i];
@@ -517,6 +1005,13 @@ public partial class BTTE : Form
             sb.AppendLine();
         }
         return sb.ToString();
+
+        static int GetTrainerPayout(IList<TrainerPoke> team, int rate)
+        {
+            if (rate == 0 || team.Count == 0)
+                return 0;
+            return team.Max(z => z.Level) * rate * 4;
+        }
     }
 
     private void UpdateStats(object sender, EventArgs e)
@@ -563,13 +1058,20 @@ public partial class BTTE : Form
 
     private void B_Save_Click(object sender, EventArgs e)
     {
+        if (!ConfirmSave())
+            return;
+
         SaveEntry();
         Modified = true;
+        CloseConfirmed = true;
         Close();
     }
 
     private void B_Randomize_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Randomize Trainers", "Randomize trainer data using the current randomizer settings?"))
+            return;
+
         SaveEntry();
         var trand = GetRandomizer();
         trand.Execute();
@@ -613,6 +1115,9 @@ public partial class BTTE : Form
 
     private void B_Boost_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Boost Trainer Levels", "Apply the configured level boost to every trainer Pokemon?"))
+            return;
+
         SaveEntry();
         var trand = GetRandomizer();
         var settings = (TrainerRandSettings)PG_RTrainer.SelectedObject!;
@@ -623,12 +1128,45 @@ public partial class BTTE : Form
 
     private void B_MaxAI_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Max Trainer AI", "Enable the strongest known AI flags for every trainer?"))
+            return;
+
         SaveEntry();
         var trand = GetRandomizer();
         trand.ModifyAllTrainers(TrainerRandomizer.MaximizeAIFlags);
         LoadEntry();
         System.Media.SystemSounds.Asterisk.Play();
     }
+
+    private bool ConfirmSave()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Save Trainers",
+            "Save the current trainer editor changes?\n\nThis applies trainer parties, trainer data, and randomizer changes to the loaded project. Closing without saving will discard this editor session.",
+            "Save");
+
+    private bool ConfirmDump()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Dump Trainers",
+            "Export trainer data to a text file?\n\nThis does not modify the loaded project.",
+            "Dump");
+
+    private bool ConfirmBulkAction(string title, string action)
+        => ThemedConfirmationDialog.Show(
+            this,
+            title,
+            action + "\n\nThis can modify many trainer entries. Review the result and press Save to write it to the loaded project.",
+            "Continue");
+
+    private bool ConfirmCloseWithoutSaving()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Close Trainer Editor",
+            "Close the trainer editor without saving?\n\nAny edits made in this editor session will be discarded and the loaded project data will not be updated.",
+            "Close");
+
+    private readonly record struct TeamSpriteKey(ushort Species, byte Form, byte Gender, int HeldItem, bool Shiny);
 }
 
 public static class FormUtil

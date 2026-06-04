@@ -14,4 +14,6 @@ public abstract class TrainerClass(byte[] data)
 
     public virtual bool IsBoss => false;
     public virtual int MegaItemID => 773;
+
+    public byte[] Write() => (byte[])Data.Clone();
 }
