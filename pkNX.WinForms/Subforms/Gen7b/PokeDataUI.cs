@@ -16,6 +16,11 @@ public partial class PokeDataUI : Form
 {
     private readonly bool Loaded;
     private readonly GameData Data;
+    private bool CloseConfirmed;
+    private const int PokemonHeaderHeight = 32;
+    private const int ThemedTabHeight = 24;
+    private const int NestedTabHeaderHeight = 40;
+    private const int NestedTabButtonHeight = 27;
 
     public PokeDataUI(PokeEditor editor, GameManager rom, GameData data)
     {
@@ -62,6 +67,9 @@ public partial class PokeDataUI : Form
         PG_Evolution.SelectedObject = EditUtil.Settings.Species;
         PG_Learn.SelectedObject = EditUtil.Settings.Learn;
         PG_Move.SelectedObject = EditUtil.Settings.Move;
+
+        ApplyPokemonEditorTheme();
+        FormClosing += PokeDataUI_FormClosing;
     }
 
     public readonly GameManager ROM;
@@ -167,7 +175,7 @@ public partial class PokeDataUI : Form
         dgv.Columns.Add(dgvMove);
     }
 
-    private static EvolutionRow[] EvoRows = [];
+    private EvolutionRow[] EvoRows = [];
 
     public void InitEvo(int rows)
     {
@@ -237,6 +245,8 @@ public partial class PokeDataUI : Form
 
     private void SaveCurrent()
     {
+        ValidateChildren();
+        dgv.EndEdit();
         SavePersonal();
         SaveLearnset();
         SaveEvolutions();
@@ -482,6 +492,7 @@ public partial class PokeDataUI : Form
 
     public void SaveLearnset()
     {
+        dgv.EndEdit();
         var pkm = cLearnset;
         List<int> moves = [];
         List<int> levels = [];
@@ -544,6 +555,9 @@ public partial class PokeDataUI : Form
 
     private void B_PDumpTable_Click(object sender, EventArgs e)
     {
+        if (!ConfirmDump())
+            return;
+
         var arr = Editor.Personal.Table;
         var result = TableUtil.GetNamedTypeTable(arr, entryNames, "Species");
         Clipboard.SetText(result);
@@ -552,6 +566,9 @@ public partial class PokeDataUI : Form
 
     private void B_RandPersonal_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Randomize Personal Data", "Randomize personal data for Pokemon entries?"))
+            return;
+
         SaveCurrent();
         var settings = (PersonalRandSettings)PG_Personal.SelectedObject!;
         var rand = new PersonalRandomizer(Editor.Personal, ROM.Info, Editor.Evolve.LoadAll()) { Settings = settings };
@@ -562,6 +579,9 @@ public partial class PokeDataUI : Form
 
     private void B_AmpExperience_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Amplify Base EXP", "Apply the base EXP multiplier to Pokemon entries?"))
+            return;
+
         SaveCurrent();
         decimal rate = NUD_AmpEXP.Value;
         foreach (var p in Editor.Personal.Table)
@@ -572,6 +592,9 @@ public partial class PokeDataUI : Form
 
     private void B_RandEvo_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Randomize Evolutions", "Randomize evolution data for Pokemon entries?"))
+            return;
+
         SaveCurrent();
         var settings = (SpeciesSettings)PG_Evolution.SelectedObject!;
         if (ROM.Info.GG)
@@ -595,6 +618,9 @@ public partial class PokeDataUI : Form
 
     private void B_TradeEvo_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Remove Trade Evolutions", "Replace trade evolution requirements for Pokemon entries?"))
+            return;
+
         SaveCurrent();
         var settings = (SpeciesSettings)PG_Evolution.SelectedObject!;
         if (ROM.Info.GG)
@@ -608,6 +634,9 @@ public partial class PokeDataUI : Form
 
     private void B_EvolveEveryLevel_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Evolve Every Level", "Apply evolve-every-level evolution data for Pokemon entries?"))
+            return;
+
         SaveCurrent();
         var settings = (SpeciesSettings)PG_Evolution.SelectedObject!;
         if (ROM.Info.GG)
@@ -632,6 +661,9 @@ public partial class PokeDataUI : Form
 
     private void B_RandLearn_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Randomize Learnsets", "Randomize learnset data for Pokemon entries?"))
+            return;
+
         SaveCurrent();
         var settings = (LearnSettings)PG_Learn.SelectedObject!;
         var moveset = (MovesetRandSettings)PG_Move.SelectedObject!;
@@ -653,6 +685,11 @@ public partial class PokeDataUI : Form
                 "Not expanding learnsets.");
             return;
         }
+
+        if (!ConfirmBulkAction("Expand Learnsets", "Expand learnsets for Pokemon entries?"))
+            return;
+
+        SaveCurrent();
         var moveset = (MovesetRandSettings)PG_Move.SelectedObject!;
         var rand = new LearnsetRandomizer(ROM.Info, Editor.Learn.LoadAll(), Editor.Personal);
         rand.Initialize(Data.MoveData.LoadAll(), settings, moveset);
@@ -663,6 +700,10 @@ public partial class PokeDataUI : Form
 
     private void B_LearnMetronome_Click(object sender, EventArgs e)
     {
+        if (!ConfirmBulkAction("Apply Metronome Learnsets", "Replace learnsets with Metronome for Pokemon entries?"))
+            return;
+
+        SaveCurrent();
         var settings = (LearnSettings)PG_Learn.SelectedObject!;
         var moveset = (MovesetRandSettings)PG_Move.SelectedObject!;
         var rand = new LearnsetRandomizer(ROM.Info, Editor.Learn.LoadAll(), Editor.Personal);
@@ -674,8 +715,201 @@ public partial class PokeDataUI : Form
 
     private void B_Save_Click(object sender, EventArgs e)
     {
+        if (!ConfirmSave())
+            return;
+
         SaveCurrent();
         Modified = true;
+        CloseConfirmed = true;
         Close();
     }
+
+    private void ApplyPokemonEditorTheme()
+    {
+        WinFormsTheme.Apply(this);
+        AddPokemonEditorHeader();
+        AddThemedTabStrip(TC_Rand);
+        AddThemedTabStrip(tabControl2);
+
+        CHK_IsPresentInGame.Enabled = true;
+        CHK_IsPresentInGame.AutoCheck = false;
+        CHK_IsPresentInGame.ForeColor = WinFormsTheme.DisabledText;
+    }
+
+    private void AddPokemonEditorHeader()
+    {
+        var nativeTabHeight = Math.Max(1, tabControl1.DisplayRectangle.Top);
+        tabControl1.Dock = DockStyle.None;
+        tabControl1.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        tabControl1.Location = new Point(0, PokemonHeaderHeight - nativeTabHeight);
+        tabControl1.Size = new Size(ClientSize.Width, ClientSize.Height - PokemonHeaderHeight + nativeTabHeight);
+
+        var header = new Panel
+        {
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = WinFormsTheme.WindowBackground,
+            Bounds = new Rectangle(0, 0, ClientSize.Width, PokemonHeaderHeight),
+        };
+        header.Paint += (_, e) =>
+        {
+            using var border = new Pen(WinFormsTheme.Border);
+            e.Graphics.DrawLine(border, 0, header.Height - 1, header.Width, header.Height - 1);
+        };
+
+        Controls.Remove(CB_Species);
+        Controls.Remove(B_Save);
+        header.Controls.Add(CB_Species);
+        header.Controls.Add(B_Save);
+
+        var tabButtons = AddThemedTabButtons(header, tabControl1, 3, 3, ThemedTabHeight + 2);
+        LayoutPokemonHeader(header, tabButtons);
+        header.Resize += (_, _) => LayoutPokemonHeader(header, tabButtons);
+
+        Controls.Add(header);
+        header.BringToFront();
+    }
+
+    private static void AddThemedTabStrip(TabControl tabControl)
+    {
+        var parent = tabControl.Parent;
+        if (parent == null)
+            return;
+
+        const int headerHeight = NestedTabHeaderHeight;
+        var nativeTabHeight = Math.Max(1, tabControl.DisplayRectangle.Top);
+        var originalBounds = tabControl.Bounds;
+        var contentOffset = Math.Max(0, headerHeight - nativeTabHeight);
+
+        if (tabControl.Dock != DockStyle.None)
+        {
+            tabControl.Dock = DockStyle.None;
+            tabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        }
+
+        tabControl.Bounds = new Rectangle(
+            originalBounds.Left,
+            originalBounds.Top + contentOffset,
+            originalBounds.Width,
+            Math.Max(1, originalBounds.Height - contentOffset));
+
+        var header = new Panel
+        {
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = WinFormsTheme.WindowBackground,
+            Bounds = new Rectangle(originalBounds.Left, originalBounds.Top, originalBounds.Width, headerHeight),
+        };
+        header.Paint += (_, e) =>
+        {
+            using var border = new Pen(WinFormsTheme.Border);
+            e.Graphics.DrawLine(border, 0, header.Height - 1, header.Width, header.Height - 1);
+        };
+
+        _ = AddThemedTabButtons(header, tabControl, 7, 6, NestedTabButtonHeight, 76, 28);
+
+        parent.Controls.Add(header);
+        header.BringToFront();
+    }
+
+    private static Button[] AddThemedTabButtons(Control parent, TabControl tabControl, int left, int top, int height, int minimumWidth = 58, int horizontalPadding = 18)
+    {
+        var buttons = new Button[tabControl.TabPages.Count];
+        var x = left;
+        for (int i = 0; i < tabControl.TabPages.Count; i++)
+        {
+            var tabIndex = i;
+            var tabPage = tabControl.TabPages[i];
+            var textWidth = TextRenderer.MeasureText(tabPage.Text, tabControl.Font).Width;
+            var button = new Button
+            {
+                FlatStyle = FlatStyle.Flat,
+                Font = tabControl.Font,
+                Height = height,
+                Location = new Point(x, top),
+                Margin = Padding.Empty,
+                Text = tabPage.Text,
+                TextAlign = ContentAlignment.MiddleCenter,
+                UseVisualStyleBackColor = false,
+                Width = Math.Max(minimumWidth, textWidth + horizontalPadding),
+            };
+            button.FlatAppearance.BorderSize = 1;
+            button.Click += (_, _) => tabControl.SelectedIndex = tabIndex;
+            parent.Controls.Add(button);
+            buttons[i] = button;
+            x += button.Width + 2;
+        }
+
+        tabControl.SelectedIndexChanged += (_, _) => UpdateThemedTabButtons(buttons, tabControl.SelectedIndex);
+        UpdateThemedTabButtons(buttons, tabControl.SelectedIndex);
+        return buttons;
+    }
+
+    private void LayoutPokemonHeader(Control header, IReadOnlyList<Button> tabButtons)
+    {
+        const int padding = 6;
+        const int gap = 8;
+
+        B_Save.Size = new Size(92, ThemedTabHeight + 2);
+        B_Save.Location = new Point(header.Width - B_Save.Width - padding, 3);
+
+        var speciesLeft = tabButtons.Count == 0 ? padding : tabButtons[^1].Right + gap;
+        var speciesRight = B_Save.Left - gap;
+        CB_Species.Location = new Point(speciesLeft, 5);
+        CB_Species.Width = Math.Max(120, speciesRight - speciesLeft);
+
+        if (CB_Species.Right > speciesRight)
+            CB_Species.Width = Math.Max(80, speciesRight - speciesLeft);
+    }
+
+    private static void UpdateThemedTabButtons(IReadOnlyList<Button> buttons, int selectedIndex)
+    {
+        for (int i = 0; i < buttons.Count; i++)
+        {
+            var selected = i == selectedIndex;
+            var button = buttons[i];
+            button.BackColor = selected ? WinFormsTheme.PanelBackground : WinFormsTheme.WindowBackground;
+            button.ForeColor = selected ? WinFormsTheme.Text : WinFormsTheme.MutedText;
+            button.FlatAppearance.BorderColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.Border;
+            button.FlatAppearance.MouseOverBackColor = selected ? WinFormsTheme.PanelBackground : Color.FromArgb(53, 55, 60);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(65, 68, 74);
+        }
+    }
+
+    private void PokeDataUI_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (CloseConfirmed || e.CloseReason != CloseReason.UserClosing)
+            return;
+
+        if (ConfirmCloseWithoutSaving())
+            return;
+
+        e.Cancel = true;
+    }
+
+    private bool ConfirmSave()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Save Pokemon Changes",
+            "Save the current Pokemon editor changes?\n\nThis applies personal data, learnsets, evolutions, and enhancement changes to the loaded project. Closing without saving will discard this editor session.",
+            "Save");
+
+    private bool ConfirmDump()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Dump Personal Table",
+            "Dump the personal table to the clipboard?\n\nThis replaces your current clipboard contents. It does not save or apply changes to the project.",
+            "Dump");
+
+    private bool ConfirmBulkAction(string title, string action)
+        => ThemedConfirmationDialog.Show(
+            this,
+            title,
+            $"{action}\n\nThis can change many values at once. Review the results before saving, or close without saving to discard them.",
+            "Continue");
+
+    private bool ConfirmCloseWithoutSaving()
+        => ThemedConfirmationDialog.Show(
+            this,
+            "Close Pokemon Editor",
+            "Close the Pokemon editor without saving?\n\nAny unsaved personal, learnset, evolution, or enhancement changes will be discarded and the loaded project data will not be updated.",
+            "Close");
 }

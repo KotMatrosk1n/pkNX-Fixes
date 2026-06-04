@@ -21,38 +21,29 @@ public partial class EvolutionRow : UserControl
         CB_Arg.Items.AddRange(None);
         CB_Method.SelectedIndexChanged += (s, e) =>
         {
-            var index = (EvolutionType)CB_Method.SelectedIndex;
-            var type = index.GetArgType();
-            L_Method.Visible = L_Species.Visible = L_Arg.Visible = L_Form.Visible = L_Level.Visible = index > 0;
-            L_Arg.Visible = CB_Arg.Visible = type >= EvolutionTypeArgumentType.Items;
-            if (type == oldMethod)
+            if (Loading || CB_Method.SelectedIndex < 0)
                 return;
 
-            if (type < EvolutionTypeArgumentType.Items)
-                return;
-
-            CB_Arg.Visible = true;
-            oldMethod = type;
-            CB_Arg.Items.Clear();
-            var vals = GetArgs(type);
-            CB_Arg.Items.AddRange(vals);
-            CB_Arg.SelectedIndex = 0;
+            ConfigureArgument((EvolutionType)CB_Method.SelectedIndex, 0);
         };
     }
 
     private void ChangeSpecies(int spec, int form) => PB_Preview.Image = SpriteUtil.GetSprite((ushort)spec, (byte)form, 0, 0, 0, false, PKHeX.Core.Shiny.Never);
 
     private EvolutionMethod? current;
-    private EvolutionTypeArgumentType oldMethod;
+    private bool Loading;
 
     public void LoadEvolution(EvolutionMethod s)
     {
         var evo = current = s;
-        CB_Species.SelectedIndex = evo.Species;
-        NUD_Form.Value = evo.Form;
-        NUD_Level.Value = evo.Level;
-        CB_Method.SelectedIndex = (int)evo.Method;
-        CB_Arg.SelectedIndex = evo.Argument;
+        Loading = true;
+        SetSelectedIndex(CB_Species, evo.Species);
+        NUD_Form.Value = Clamp(evo.Form, NUD_Form.Minimum, NUD_Form.Maximum);
+        NUD_Level.Value = Clamp(evo.Level, NUD_Level.Minimum, NUD_Level.Maximum);
+        SetSelectedIndex(CB_Method, (int)evo.Method);
+        ConfigureArgument(evo.Method, evo.Argument);
+        Loading = false;
+        ChangeSpecies(CB_Species.SelectedIndex, (int)NUD_Form.Value);
     }
 
     public void SaveEvolution()
@@ -60,11 +51,51 @@ public partial class EvolutionRow : UserControl
         var evo = current;
         if (evo == null)
             return;
-        evo.Species = (ushort)CB_Species.SelectedIndex;
+        var method = CB_Method.SelectedIndex < 0 ? EvolutionType.None : (EvolutionType)CB_Method.SelectedIndex;
+        var argumentType = method.GetArgType();
+
+        evo.Species = (ushort)Math.Max(0, CB_Species.SelectedIndex);
         evo.Form = (byte)NUD_Form.Value;
         evo.Level = (byte)NUD_Level.Value;
-        evo.Method = (EvolutionType)CB_Method.SelectedIndex;
-        evo.Argument = (ushort)CB_Arg.SelectedIndex;
+        evo.Method = method;
+        evo.Argument = argumentType >= EvolutionTypeArgumentType.Items && CB_Arg.SelectedIndex >= 0
+            ? (ushort)CB_Arg.SelectedIndex
+            : (ushort)0;
+    }
+
+    private void ConfigureArgument(EvolutionType method, int argument)
+    {
+        var argumentType = method.GetArgType();
+        var hasEvolution = (int)method > 0;
+        var hasVisibleArgument = argumentType >= EvolutionTypeArgumentType.Items;
+
+        L_Method.Visible = L_Species.Visible = L_Form.Visible = L_Level.Visible = hasEvolution;
+        L_Arg.Visible = CB_Arg.Visible = hasEvolution && hasVisibleArgument;
+
+        var values = hasVisibleArgument ? GetArgs(argumentType) : None;
+        CB_Arg.BeginUpdate();
+        CB_Arg.Items.Clear();
+        CB_Arg.Items.AddRange(values);
+        CB_Arg.EndUpdate();
+
+        SetSelectedIndex(CB_Arg, hasVisibleArgument ? argument : 0);
+    }
+
+    private static void SetSelectedIndex(ComboBox comboBox, int index)
+    {
+        if (comboBox.Items.Count == 0)
+            return;
+
+        comboBox.SelectedIndex = Math.Max(0, Math.Min(index, comboBox.Items.Count - 1));
+    }
+
+    private static decimal Clamp(decimal value, decimal minimum, decimal maximum)
+    {
+        if (value < minimum)
+            return minimum;
+        if (value > maximum)
+            return maximum;
+        return value;
     }
 
     public static string[] items = [];
