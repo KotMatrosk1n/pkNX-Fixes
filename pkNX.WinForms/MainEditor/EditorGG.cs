@@ -330,6 +330,8 @@ internal class EditorGG : EditorBase
     {
         var arc = ROM.GetFile(GameFile.Shops);
         var data = arc[0];
+        pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
+        ShopItemNameFormatter.MoveNames = [];
         int[] PossibleHeldItems = Legal.GetRandomItemList(ROM.Game);
         var shop = FlatBufferConverter.DeserializeFrom<ShopInventory>(data);
         if (!shop2)

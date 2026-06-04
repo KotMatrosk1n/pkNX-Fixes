@@ -17,7 +17,12 @@ public class ItemConverter : TypeConverter
     {
         if (value is string s)
         {
-            return Array.IndexOf(ItemNames, s);
+            if (int.TryParse(s, NumberStyles.Integer, culture, out var itemID))
+                return itemID;
+
+            var index = Array.IndexOf(ItemNames, s);
+            if (index >= 0)
+                return index;
         }
 
         return base.ConvertFrom(context, culture, value);
@@ -26,7 +31,7 @@ public class ItemConverter : TypeConverter
     public override object? ConvertTo(ITypeDescriptorContext? context, CultureInfo? culture, object? value, Type destinationType)
     {
         if (destinationType == typeof(string) && value is int i)
-            return ItemNames[i];
+            return (uint)i < (uint)ItemNames.Length ? ItemNames[i] : i.ToString(culture);
 
         return base.ConvertTo(context, culture, value, destinationType);
     }

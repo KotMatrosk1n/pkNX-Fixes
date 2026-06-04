@@ -2,7 +2,9 @@ namespace pkNX.Structures.FlatBuffers.SWSH;
 
 public partial class SingleShop
 {
-    public override string ToString() => $"{Hash:X16} - {Inventories}";
+    public override string ToString() => $"{GetName(Hash)} - {Inventories}";
+
+    public static string GetName(ulong hash) => SWSH.TryGetValue(hash, out var name) ? name : hash.ToString("X16");
 
     public static readonly Dictionary<ulong, string> SWSH = new()
     {
@@ -15,7 +17,7 @@ public partial class SingleShop
         { 0x8E308B85B43031E8, "Battle Tower [TMs]" },
         { 0xCBD67969D873539B, "Motostoke [Lower Tier, Miscellaneous]" },
         { 0xCBD67869D87351E8, "Hammerlocke [South, Miscellaneous]" },
-        { 0xCBD669D8735701, "Wyndon [South, Miscellaneous]" },
+        { 0xCBD67B69D8735701, "Wyndon [South, Miscellaneous]" },
         { 0x04D7046DA09D3C78, "Hulbury [Herb Shop]" },
         { 0x4B2F9E98DDCB0707, "Hulbury [Incense Shop]" },
         { 0xE379CDF67A297070, "Wedgehurst [Berry Shop]" },
@@ -103,7 +105,9 @@ public partial class SingleShop
 
 public partial class MultiShop
 {
-    public override string ToString() => $"{Hash:X16} - {string.Join(", ", Inventories.Select(z => z.ToString()))}";
+    public override string ToString() => $"{GetName(Hash)} - {string.Join(", ", Inventories.Select(z => z.ToString()))}";
+
+    public static string GetName(ulong hash) => SWSH.TryGetValue(hash, out var name) ? name : hash.ToString("X16");
 
     public static readonly Dictionary<ulong, string> SWSH = new()
     {

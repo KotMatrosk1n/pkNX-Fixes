@@ -402,12 +402,14 @@ internal class EditorSWSH : EditorBase
     {
         var arc = ROM.GetFile(GameFile.Shops);
         var data = arc[0];
+        pkNX.Structures.ItemConverter.ItemNames = ROM.GetStrings(TextName.ItemNames);
+        ShopItemNameFormatter.MoveNames = ROM.GetStrings(TextName.MoveNames);
         int[] PossibleHeldItems = Legal.GetRandomItemList(ROM.Game);
         var shop = FlatBufferConverter.DeserializeFrom<ShopInventory>(data);
         if (!shop2)
         {
             var table = shop.Single;
-            var names = table.Select((z, _) => $"{(SingleShop.SWSH.TryGetValue(z.Hash, out var shopName) ? shopName : z.Hash.ToString("X"))}").ToArray();
+            var names = table.Select((z, i) => GetShopName(z, i)).ToArray();
             var cache = new DirectCache<SingleShop>(table!);
             using var form = new GenericEditor<SingleShop>(cache, names, $"{nameof(SingleShop)} Editor", Randomize);
             form.ShowDialog();
@@ -424,7 +426,7 @@ internal class EditorSWSH : EditorBase
                     var items = shopDefinition.Inventories.Items;
                     for (int i = 0; i < items.Count; i++)
                     {
-                        if (Legal.Pouch_TMHM_SM.Contains((ushort)items[i]) || items[i] == 1230) // skip TMs
+                        if (Legal.Pouch_TMHM_SWSH.Contains((ushort)items[i])) // skip TMs/TRs
                             continue;
                         items[i] = PossibleHeldItems[Randomization.Util.Random.Next(PossibleHeldItems.Length)];
                     }
@@ -434,7 +436,7 @@ internal class EditorSWSH : EditorBase
         else
         {
             var table = shop.Multi;
-            var names = table.Select((z, _) => $"{(SingleShop.SWSH.TryGetValue(z.Hash, out var shopName) ? shopName : z.Hash.ToString("X"))}").ToArray();
+            var names = table.Select((z, i) => GetShopName(z, i)).ToArray();
             var cache = new DirectCache<MultiShop>(table!);
             using var form = new GenericEditor<MultiShop>(cache, names, $"{nameof(MultiShop)} Editor", Randomize);
             form.ShowDialog();
@@ -458,6 +460,44 @@ internal class EditorSWSH : EditorBase
             }
         }
         arc[0] = shop.SerializeFrom();
+    }
+
+    private static string GetShopName(SingleShop shop, int index)
+    {
+        if (SingleShop.SWSH.TryGetValue(shop.Hash, out var name))
+            return name;
+
+        return GetFallbackShopName("Single Shop", shop.Hash, index, [shop.Inventories]);
+    }
+
+    private static string GetShopName(MultiShop shop, int index)
+    {
+        if (MultiShop.SWSH.TryGetValue(shop.Hash, out var name))
+            return name;
+
+        return GetFallbackShopName("Multi Shop", shop.Hash, index, shop.Inventories);
+    }
+
+    private static string GetFallbackShopName(string label, ulong hash, int index, IEnumerable<Inventory> inventories)
+    {
+        var summary = string.Join(" / ", inventories.Select(GetInventorySummary).Where(z => z.Length != 0).Take(2));
+        if (summary.Length == 0)
+            return $"{label} {index + 1} [{hash:X16}]";
+
+        return $"{label} {index + 1} [{summary}]";
+    }
+
+    private static string GetInventorySummary(Inventory inventory)
+    {
+        const int MaxItems = 4;
+        var items = inventory.Items;
+        var summary = string.Join(", ", items.Take(MaxItems).Select(GetItemName));
+        return items.Count > MaxItems ? $"{summary}, ..." : summary;
+    }
+
+    private static string GetItemName(int item)
+    {
+        return ShopItemNameFormatter.GetDisplayName(item);
     }
 
     public void EditMoves()
