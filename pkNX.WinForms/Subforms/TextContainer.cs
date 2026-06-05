@@ -37,6 +37,8 @@ public class TextContainer
         return i.ToString();
     }
 
+    public string? GetFilePath(int i) => Container is FolderContainer f ? f.GetFileName(i) : null;
+
     public void Save()
     {
         for (int i = 0; i < Length; i++)
