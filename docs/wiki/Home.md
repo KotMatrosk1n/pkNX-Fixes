@@ -1,6 +1,6 @@
 # pkNX-Fixes Wiki
 
-This wiki documents the Matroskin pkNX fork work in first person, with technical notes about why I changed each editor, which files I touched, and how the new systems work internally.
+This wiki documents the Matroskin pkNX fork work, with technical notes about the reasoning behind each editor change, the files involved, and how the new systems work internally.
 
 Start here:
 
