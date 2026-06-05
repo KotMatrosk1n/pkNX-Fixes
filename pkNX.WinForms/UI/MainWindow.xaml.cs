@@ -377,8 +377,10 @@ public partial class MainWindow
 
     private static string GetEditorButtonSortKey(EditorButtonData button)
     {
-        return button.Title.Equals("Wild", StringComparison.OrdinalIgnoreCase)
-            ? "Items~Wild"
-            : button.Title;
+        if (button.Title.Equals("Wild", StringComparison.OrdinalIgnoreCase))
+            return "Items~Wild";
+        if (button.Title.Equals("Dialogue Map", StringComparison.OrdinalIgnoreCase))
+            return "Trainers~Dialogue Map";
+        return button.Title;
     }
 }

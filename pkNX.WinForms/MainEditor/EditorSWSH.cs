@@ -72,6 +72,24 @@ internal class EditorSWSH : EditorBase
             editor.Save();
     }
 
+    public void EditDialogueMap()
+    {
+        var common = ROM.GetFilteredFolder(GameFile.GameText, z => Path.GetExtension(z) == ".dat");
+        var script = ROM.GetFilteredFolder(GameFile.StoryText, z => Path.GetExtension(z) == ".dat");
+        var config = new TextConfig(ROM.Game);
+
+        var commonText = new TextContainer(common, config);
+        var scriptText = new TextContainer(script, config);
+        using var form = new DialogueMapEditor(commonText, scriptText, ROM.PathRomFS);
+        form.ShowDialog();
+
+        if (!form.Modified)
+        {
+            common.CancelEdits();
+            script.CancelEdits();
+        }
+    }
+
     public void EditPokémon()
     {
         var editor = new PokeEditor
