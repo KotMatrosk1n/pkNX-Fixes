@@ -80,3 +80,8 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - the Customize Royal Candy Limits action now runs preflight before opening the cap editor, so an already-installed Royal Candy output is rejected immediately;
   - the Royal Candy status line now uses simple user-facing blocker text such as `Unlimited Royal Candy already installed.` or `Custom Royal Candy already installed.`;
   - Royal Candy, Flagwork, Story Events, Trainer Map, Save Inspector, Patch Manager, and the Royal Candy dialogs now use the same dark WinForms theme as the existing Royal Dialogue Map editor.
+- Added signature-gated Royal Candy uninstall support:
+  - the editor now exposes an `Uninstall Royal Candy` action next to the unlimited/custom builder actions;
+  - uninstall preflight scans layered `exefs/main` and refuses to run unless it matches a registered unlimited or custom-limit Royal Candy signature;
+  - unknown ExeFS overlays remain blocked until a signature is added to the library;
+  - successful uninstall removes the known Royal Candy LayeredFS output files and prunes empty folders under the selected title-ID output root.

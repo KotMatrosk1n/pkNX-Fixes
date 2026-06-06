@@ -34,6 +34,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private readonly Label ProjectStatusLabel = new();
     private readonly Button UnlimitedButton = new();
     private readonly Button CustomizeButton = new();
+    private readonly Button UninstallButton = new();
     private readonly DataGridView ResultGrid = new();
     private readonly TextBox LogText = new();
     private readonly ToolTip ButtonToolTips = new()
@@ -89,18 +90,21 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
         var actionPanel = new TableLayoutPanel
         {
-            ColumnCount = 2,
+            ColumnCount = 3,
             Dock = DockStyle.Fill,
             Padding = new Padding(0, 8, 0, 12),
             RowCount = 1,
         };
-        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
 
         ConfigurePrimaryActionButton(UnlimitedButton, "Give me an infinite Royal Candy without limits", "Builds Royal Candy with the fresh-new-game Bag grant and no custom story cap ladder.", BuildUnlimited);
         ConfigurePrimaryActionButton(CustomizeButton, "Customize Royal Candy limits", "Opens milestone level cap customization before building Royal Candy.", CustomizeLimits);
+        ConfigurePrimaryActionButton(UninstallButton, "Uninstall Royal Candy", "Removes a Royal Candy LayeredFS output only when exefs/main matches a registered Royal Candy signature.", UninstallRoyalCandy);
         actionPanel.Controls.Add(UnlimitedButton, 0, 0);
         actionPanel.Controls.Add(CustomizeButton, 1, 0);
+        actionPanel.Controls.Add(UninstallButton, 2, 0);
 
         ConfigureGrid(ResultGrid);
         ResultGrid.Columns.Add(CreateTextColumn("Status", 86));
@@ -341,6 +345,18 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         RunBuild(options);
     }
 
+    private void UninstallRoyalCandy()
+    {
+        var options = CreateOptions(RoyalCandyBuildMode.Unlimited, null);
+        if (!CheckUninstallPreflight(options))
+            return;
+
+        if (!ConfirmUninstall())
+            return;
+
+        RunUninstall(options);
+    }
+
     private bool CheckBuildPreflight(RoyalCandyBuildOptions options)
     {
         ToggleActions(false);
@@ -375,6 +391,40 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         }
     }
 
+    private bool CheckUninstallPreflight(RoyalCandyBuildOptions options)
+    {
+        ToggleActions(false);
+        try
+        {
+            var preflight = RoyalCandyLayeredFsBuilder.AnalyzeUninstallPreflight(options);
+            SetResults(preflight.Results);
+            LogText.Text = string.Join(Environment.NewLine, preflight.Notes);
+            if (preflight.Passed)
+            {
+                SetProjectStatus("Ready to uninstall the detected Royal Candy output.", true);
+                return true;
+            }
+
+            SetProjectStatus(GetSimpleUninstallStatus(preflight), false);
+            MessageBox.Show(this, preflight.Message, "Royal Candy Uninstall", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            SetResults([
+                new("Fail", "Uninstall", string.Empty, ex.Message),
+            ]);
+            LogText.Text = ex.ToString();
+            SetProjectStatus("Royal Candy cannot be uninstalled until the preflight issue is fixed.", false);
+            MessageBox.Show(this, ex.Message, "Royal Candy Uninstall", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        finally
+        {
+            ToggleActions(true);
+        }
+    }
+
     private void RunBuild(RoyalCandyBuildOptions options)
     {
         ToggleActions(false);
@@ -393,6 +443,31 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             ]);
             LogText.Text = ex.ToString();
             SetProjectStatus("Royal Candy output was not generated.", false);
+        }
+        finally
+        {
+            ToggleActions(true);
+        }
+    }
+
+    private void RunUninstall(RoyalCandyBuildOptions options)
+    {
+        ToggleActions(false);
+        try
+        {
+            var summary = RoyalCandyLayeredFsBuilder.Uninstall(options);
+            SetResults(summary.Results);
+            LogText.Text = string.Join(Environment.NewLine, summary.Notes);
+            SetReadyStatus();
+            MessageBox.Show(this, "Royal Candy output was uninstalled.", "Royal Candy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            SetResults([
+                new("Fail", "Uninstall", string.Empty, ex.Message),
+            ]);
+            LogText.Text = ex.ToString();
+            SetProjectStatus("Royal Candy output was not uninstalled.", false);
         }
         finally
         {
@@ -440,6 +515,12 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         return MessageBox.Show(this, warning, "Royal Candy ExeFS Warning", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
     }
 
+    private bool ConfirmUninstall()
+    {
+        const string warning = "Royal Candy uninstall removes the LayeredFS files generated by the Royal Candy builder after confirming that the selected exefs/main matches a registered Royal Candy signature.\n\nThis is safe for a dedicated Royal Candy output folder. If another mod's edits were merged into the same overlay files, removing those files can also remove those shared overlay edits.\n\nContinue and uninstall Royal Candy from the selected LayeredFS output?";
+        return MessageBox.Show(this, warning, "Royal Candy Uninstall", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+    }
+
     private void SetResults(IEnumerable<BuildResult> results)
     {
         ResultGrid.Rows.Clear();
@@ -449,8 +530,10 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
     private void ToggleActions(bool enabled)
     {
-        UnlimitedButton.Enabled = enabled;
-        CustomizeButton.Enabled = enabled;
+        var actionEnabled = enabled && ProjectReady;
+        UnlimitedButton.Enabled = actionEnabled;
+        CustomizeButton.Enabled = actionEnabled;
+        UninstallButton.Enabled = actionEnabled;
     }
 
     private void RefreshInstalledRoyalCandyStatus()
@@ -505,6 +588,14 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             return "Unknown ExeFS mod detected.";
 
         return "Royal Candy cannot be installed until the preflight issue is fixed.";
+    }
+
+    private static string GetSimpleUninstallStatus(RoyalCandyBuildPreflight preflight)
+    {
+        if (preflight.ExeFsSignatureScan is { HasUnknownChanges: true })
+            return "Unknown ExeFS mod detected.";
+
+        return "No Royal Candy install detected.";
     }
 
     private static string GetInstalledStatusText(RoyalCandyBuildMode mode) =>
@@ -866,6 +957,44 @@ internal static class RoyalCandyLayeredFsBuilder
         return new(results, notes);
     }
 
+    public static RoyalCandyBuildSummary Uninstall(RoyalCandyBuildOptions options)
+    {
+        var results = new List<BuildResult>();
+        var notes = new List<string>
+        {
+            "Royal Sword Candy Uninstall",
+            "===========================",
+            "",
+            $"Output: {options.OutputPath}",
+            $"Game: {options.GameFlavor}",
+            "",
+        };
+
+        var preflight = AnalyzeUninstallPreflight(options);
+        if (!preflight.Passed)
+            throw new InvalidOperationException(preflight.Message);
+
+        results.AddRange(preflight.Results);
+        notes.AddRange(preflight.Notes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
+
+        var deletedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var removedFiles = 0;
+        foreach (var relativePath in EnumerateRoyalCandyOutputRelativePaths(options).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!DeleteOutputFile(options.OutputPath, relativePath, deletedDirectories))
+                continue;
+
+            removedFiles++;
+            results.Add(new("Pass", "Uninstall", relativePath, "Removed Royal Candy output file."));
+            notes.Add($"- Removed {relativePath}.");
+        }
+
+        var removedDirectories = PruneEmptyOutputDirectories(options.OutputPath, deletedDirectories);
+        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed {removedFiles:N0} Royal Candy file(s) and {removedDirectories:N0} empty folder(s)."));
+        notes.Add($"- Removed {removedFiles:N0} Royal Candy file(s) and {removedDirectories:N0} empty folder(s).");
+        return new(results, notes);
+    }
+
     public static RoyalCandyBuildPreflight AnalyzeBuildPreflight(RoyalCandyBuildOptions options)
     {
         var results = new List<BuildResult>();
@@ -943,9 +1072,57 @@ internal static class RoyalCandyLayeredFsBuilder
         return new(true, "Preflight passed.", results, notes, null, signatureScan);
     }
 
-    private static void AddExeFsSignatureScanResult(RoyalSwordExeFsSignatureScan scan, bool buildingExeFs, List<BuildResult> results, List<string> notes)
+    public static RoyalCandyBuildPreflight AnalyzeUninstallPreflight(RoyalCandyBuildOptions options)
     {
-        var status = scan.InstalledRoyalCandy is not null || buildingExeFs && scan.HasUnknownChanges
+        var results = new List<BuildResult>();
+        var notes = new List<string>
+        {
+            "Royal Candy uninstall preflight",
+            "===============================",
+            "",
+            $"LayeredFS output root: {options.OutputPath}",
+            "Uninstall only runs when layered exefs/main matches a registered Royal Candy signature.",
+            "",
+        };
+
+        var signatureScan = AnalyzeLayeredExeFsMain(options);
+        if (signatureScan is null)
+        {
+            var message = "No layered exefs/main was found in the selected mod folder, so no signature-backed Royal Candy install was detected.";
+            results.Add(new("Fail", "Uninstall", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes);
+        }
+
+        AddExeFsSignatureScanResult(signatureScan, false, results, notes, failOnInstalledRoyalCandy: false);
+        if (!signatureScan.Valid)
+        {
+            var message = "Layered exefs/main could not be scanned as a valid NSO.";
+            results.Add(new("Fail", "Uninstall", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes, null, signatureScan);
+        }
+
+        if (signatureScan.InstalledRoyalCandy is not { } installedRoyalCandy)
+        {
+            var message = signatureScan.HasUnknownChanges
+                ? "Unknown ExeFS mod detected in the selected mod folder. Uninstall is blocked until this edit has a registered signature."
+                : "No registered Royal Candy ExeFS signature was detected in the selected mod folder.";
+            results.Add(new("Fail", "Uninstall", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes, null, signatureScan);
+        }
+
+        var passMessage = $"Detected {installedRoyalCandy.Description}. Uninstall can remove the Royal Candy LayeredFS output files.";
+        results.Add(new("Pass", "Uninstall", "exefs/main", passMessage));
+        notes.Add("- " + passMessage);
+        notes.AddRange(installedRoyalCandy.Details.Select(detail => "  - " + detail));
+        return new(true, passMessage, results, notes, installedRoyalCandy, signatureScan);
+    }
+
+    private static void AddExeFsSignatureScanResult(RoyalSwordExeFsSignatureScan scan, bool buildingExeFs, List<BuildResult> results, List<string> notes, bool failOnInstalledRoyalCandy = true)
+    {
+        var status = !scan.Valid || failOnInstalledRoyalCandy && scan.InstalledRoyalCandy is not null || buildingExeFs && scan.HasUnknownChanges
             ? "Fail"
             : scan.Matches.Count != 0
                 ? "Pass"
@@ -2126,6 +2303,51 @@ internal static class RoyalCandyLayeredFsBuilder
     public static RoyalCandyInstallScan? DetectInstalledRoyalCandy(RoyalCandyBuildOptions options) =>
         AnalyzeLayeredExeFsMain(options)?.InstalledRoyalCandy;
 
+    private static IEnumerable<string> EnumerateRoyalCandyOutputRelativePaths(RoyalCandyBuildOptions options)
+    {
+        yield return "exefs/main";
+        yield return "exefs/royal_candy_ui_hook_patch_notes.txt";
+        yield return "royal_candy_item_row_notes.txt";
+        yield return "royal_candy_source_cleanup_notes.txt";
+
+        yield return "romfs/" + ItemPath;
+        yield return "romfs/" + ShopPath;
+        yield return "romfs/" + NestDataPath;
+        yield return "romfs/" + PlacementPath;
+        yield return "romfs/" + RoyalSwordScriptAmxPatcher.BagEventScriptPath;
+
+        foreach (var language in EnumerateMessageLanguages(options))
+        {
+            yield return $"romfs/{MessageRoot}/{language}/common/{ItemInfoFile}";
+            foreach (var fileName in EnumerateMessageFileNames(options, language, "itemname*.dat"))
+                yield return $"romfs/{MessageRoot}/{language}/common/{fileName}";
+        }
+
+        if (IsOwnedRoyalCandyReadme(options.OutputPath))
+            yield return "README.md";
+    }
+
+    private static bool IsOwnedRoyalCandyReadme(string outputRoot)
+    {
+        var readmePath = Path.Combine(outputRoot, "README.md");
+        if (!File.Exists(readmePath))
+            return false;
+
+        try
+        {
+            using var reader = File.OpenText(readmePath);
+            return string.Equals(reader.ReadLine(), "# Royal Candy Patch", StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static string GetTitleId(RoyalCandyGameFlavor gameFlavor) => gameFlavor switch
     {
         RoyalCandyGameFlavor.Sword => "0100ABF008968000",
@@ -2157,6 +2379,52 @@ internal static class RoyalCandyLayeredFsBuilder
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         File.WriteAllBytes(outputPath, data);
     }
+
+    private static bool DeleteOutputFile(string outputRoot, string relativePath, ISet<string> deletedDirectories)
+    {
+        var outputPath = GetContainedOutputPath(outputRoot, relativePath);
+        if (!File.Exists(outputPath))
+            return false;
+
+        File.Delete(outputPath);
+        if (Path.GetDirectoryName(outputPath) is { } directory)
+            deletedDirectories.Add(directory);
+        return true;
+    }
+
+    private static int PruneEmptyOutputDirectories(string outputRoot, IEnumerable<string> startDirectories)
+    {
+        var root = Path.GetFullPath(outputRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var removed = 0;
+        foreach (var start in startDirectories.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var directory = Path.GetFullPath(start);
+            while (!string.Equals(directory, root, StringComparison.OrdinalIgnoreCase)
+                && IsPathInsideRoot(root, directory)
+                && Directory.Exists(directory)
+                && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+                removed++;
+                directory = Directory.GetParent(directory)?.FullName ?? root;
+            }
+        }
+
+        return removed;
+    }
+
+    private static string GetContainedOutputPath(string outputRoot, string relativePath)
+    {
+        var root = Path.GetFullPath(outputRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var outputPath = Path.GetFullPath(Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsPathInsideRoot(root, outputPath))
+            throw new InvalidOperationException($"Refusing to touch output path outside the selected LayeredFS root: {relativePath}");
+
+        return outputPath;
+    }
+
+    private static bool IsPathInsideRoot(string root, string path) =>
+        path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private enum Arm64Condition
     {
