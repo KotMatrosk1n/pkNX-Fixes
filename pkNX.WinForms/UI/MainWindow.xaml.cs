@@ -32,6 +32,7 @@ public readonly struct EditorButtonData
 
     public string Title { get; init; }
     public IconChar? Icon { get; init; }
+    public string? ToolTip { get; init; }
     public Action<object, RoutedEventArgs> OnClick { get; init; }
 }
 
@@ -85,6 +86,7 @@ public partial class MainWindow
 
         CB_Lang.SelectedIndex = Settings.Language;
         Menu_DisplayAdvanced.IsChecked = Settings.DisplayAdvanced;
+        Menu_RoyalSwordTools.IsChecked = Settings.DisplayRoyalSwordTools;
 
         if (!string.IsNullOrWhiteSpace(Settings.GamePath) && Directory.Exists(Settings.GamePath))
             OpenPath(Settings.GamePath);
@@ -204,6 +206,27 @@ public partial class MainWindow
     private void LoadEditorButtons(EditorCategory category = EditorCategory.None)
     {
         List<EditorButtonData> categories = [];
+        if (Settings.DisplayRoyalSwordTools)
+        {
+            categories.AddRange(Editor!.GetControls(EditorCategory.None, Settings.DisplayAdvanced, EditorToolset.RoyalSword).OrderBy(GetEditorButtonSortKey));
+            if (categories.Count == 0)
+            {
+                categories.Add(new()
+                {
+                    Title = "No Royal Tools",
+                    ToolTip = "No Royal Sword tools are registered for this game.",
+                    OnClick = (_, _) => WinFormsUtil.Alert("No Royal Sword tools are registered for this game."),
+                });
+            }
+
+            Categories = [.. categories];
+
+            AdjustWindowSize();
+
+            CenterWindowOnScreen();
+            return;
+        }
+
         if (category == EditorCategory.None)
         {
             foreach (var c in Enum.GetValues<EditorCategory>())
@@ -211,13 +234,14 @@ public partial class MainWindow
                 if (c == EditorCategory.None)
                     continue;
 
-                if (Editor!.CountControlsForCategory(c) == 0)
+                if (Editor!.CountControlsForCategory(c, Settings.DisplayAdvanced) == 0)
                     continue;
 
                 categories.Add(new()
                 {
                     Icon = c.GetIcon(),
                     Title = c.ToString(),
+                    ToolTip = $"Show {c} editors.",
                     OnClick = (_, _) => LoadEditorButtons(c),
                 });
             }
@@ -229,6 +253,7 @@ public partial class MainWindow
             {
                 Title = "Back",
                 Icon = IconChar.Reply,
+                ToolTip = "Return to editor categories.",
                 OnClick = (_, _) => LoadEditorButtons(),
             });
         }
@@ -375,8 +400,29 @@ public partial class MainWindow
         LoadEditorButtons();
     }
 
+    private async void Menu_RoyalSwordTools_Click(object sender, RoutedEventArgs e)
+    {
+        Menu_RoyalSwordTools.IsChecked = !Menu_RoyalSwordTools.IsChecked;
+        Settings.DisplayRoyalSwordTools = Menu_RoyalSwordTools.IsChecked;
+        await ProgramSettings.SaveSettings(Settings);
+
+        LoadEditorButtons();
+    }
+
     private static string GetEditorButtonSortKey(EditorButtonData button)
     {
+        if (button.Title.Equals("Candy Builder", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~01";
+        if (button.Title.Equals("Flagwork", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~02";
+        if (button.Title.Equals("Story Events", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~03";
+        if (button.Title.Equals("Trainer Map", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~04";
+        if (button.Title.Equals("Save Inspector", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~05";
+        if (button.Title.Equals("Patch Manager", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~06";
         if (button.Title.Equals("Wild", StringComparison.OrdinalIgnoreCase))
             return "Items~Wild";
         if (button.Title.Equals("Dialogue Map", StringComparison.OrdinalIgnoreCase))

@@ -28,6 +28,41 @@ internal class EditorSWSH : EditorBase
     private GameData Data => ROM.Data;
     protected internal EditorSWSH(GameManagerSWSH rom) => ROM = rom;
 
+    [EditorCallable(EditorCategory.None, editorName: "Candy Builder", toolset: EditorToolset.RoyalSword, description: "Royal Sword Candy Builder: create, validate, and export the Royal Candy item/patch workflow.")]
+    public void RoyalSwordCandyBuilder() => ShowRoyalSwordToolPlaceholder(
+        "Royal Sword Candy Builder",
+        "Planned workflow for Royal Candy item setup, text, shop availability, ExeFS hooks, cap ladder validation, patch notes, and probe builds.");
+
+    [EditorCallable(EditorCategory.None, editorName: "Flagwork", toolset: EditorToolset.RoyalSword, description: "Royal Sword Flagwork Browser: search and inspect Sword/Shield flagwork hash tables.")]
+    public void RoyalSwordFlagwork() => ShowRoyalSwordToolPlaceholder(
+        "Royal Sword Flagwork Browser",
+        "Planned browser for flag/work names, hashes, save keys, table sources, and copyable references.");
+
+    [EditorCallable(EditorCategory.None, editorName: "Story Events", toolset: EditorToolset.RoyalSword, description: "Royal Sword Story Event Inspector: connect main-event text, AMX scripts, and flag/work references.")]
+    public void RoyalSwordStoryEvents() => ShowRoyalSwordToolPlaceholder(
+        "Royal Sword Story Event Inspector",
+        "Planned inspector for main_event message text, script metadata, AMX references, adjacent events, and cap marker candidates.");
+
+    [EditorCallable(EditorCategory.None, editorName: "Trainer Map", toolset: EditorToolset.RoyalSword, description: "Royal Sword Trainer Progress Mapper: correlate trainers with placement, story events, and progress markers.")]
+    public void RoyalSwordTrainerMap() => ShowRoyalSwordToolPlaceholder(
+        "Royal Sword Trainer Progress Mapper",
+        "Planned mapper for trainer IDs, trainer hashes, teams, placement hits, story-event evidence, and progress-marker confidence.");
+
+    [EditorCallable(EditorCategory.None, editorName: "Save Inspector", toolset: EditorToolset.RoyalSword, description: "Royal Sword Save Inspector: evaluate save progress and Royal Sword milestone state.")]
+    public void RoyalSwordSaveInspector() => ShowRoyalSwordToolPlaceholder(
+        "Royal Sword Save Inspector",
+        "Planned save reader for SWSH save metadata, flag/work state, scene progress, and Royal Candy cap-ladder results.");
+
+    [EditorCallable(EditorCategory.None, editorName: "Patch Manager", toolset: EditorToolset.RoyalSword, description: "Royal Sword Patch Manager: validate ExeFS patch signatures, offsets, and code-cave usage.")]
+    public void RoyalSwordPatchManager() => ShowRoyalSwordToolPlaceholder(
+        "Royal Sword Patch Manager",
+        "Planned advanced view for NSO status, known patch signatures, patch offsets, code caves, and generated notes.");
+
+    private static void ShowRoyalSwordToolPlaceholder(string title, string purpose)
+    {
+        WinFormsUtil.Alert(title, purpose, "The dashboard entry is wired up; the full editor will be implemented in a later Royal Sword integration step.");
+    }
+
     public void EditCommon()
     {
         var text = ROM.GetFilteredFolder(GameFile.GameText, z => Path.GetExtension(z) == ".dat");
