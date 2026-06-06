@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 using pkNX.Game;
@@ -67,6 +68,7 @@ public partial class BTTE : Form
     private bool MoveListLoaded;
     private bool StatsInitialized;
     private bool TrainerItemListsLoaded;
+    private Task<TrainerEditorPreloadData>? TrainerEditorPreloadTask;
 
     public BTTE(GameData data, TrainerEditor editor, GameManager game)
     {
@@ -117,11 +119,13 @@ public partial class BTTE : Form
             if (TC_trdata.SelectedTab == Tab_Rand)
                 EnsureRandomizerSettingsLoaded();
         };
+        StartTrainerEditorPreload();
         Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
         {
             ConfigureTrainerToolTips();
             CB_TrainerID.Focus();
             CB_TrainerID.SelectAll();
+            PreloadTrainerEditorListsAsync();
         }));
     }
 
@@ -480,6 +484,64 @@ public partial class BTTE : Form
         };
     }
 
+    private Task<TrainerEditorPreloadData> StartTrainerEditorPreload()
+        => TrainerEditorPreloadTask ??= Task.Run(LoadTrainerEditorPreloadData);
+
+    private async void PreloadTrainerEditorListsAsync()
+    {
+        try
+        {
+            var preload = await StartTrainerEditorPreload();
+            if (IsDisposed)
+                return;
+
+            await Task.Yield();
+            ApplyPokemonEditorLists(preload);
+            await Task.Yield();
+            EnsureTrainerItemListsLoaded();
+            await Task.Yield();
+            ApplyMoveList(preload);
+            await Task.Yield();
+            ApplyStatsTypes(preload);
+        }
+        catch
+        {
+            // Keep synchronous fallback paths available if background preloading fails.
+            TrainerEditorPreloadTask = null;
+        }
+    }
+
+    private TrainerEditorPreloadData LoadTrainerEditorPreloadData()
+    {
+        var abilities = Game.GetStrings(TextName.AbilityNames);
+        var species = Game.GetStrings(TextName.SpeciesNames);
+        var natureNames = Game.GetStrings(TextName.Natures);
+        var moves = EditorUtil.SanitizeMoveList(Game.GetStrings(TextName.MoveNames));
+        var typeNames = Game.GetStrings(TextName.TypeNames);
+
+        if (species.Length != 0)
+            species[0] = "---";
+        if (abilities.Length != 0)
+            abilities[0] = "(None)";
+        if (moves.Length != 0)
+            moves[0] = "(None)";
+
+        return new TrainerEditorPreloadData(abilities, species, natureNames, moves, typeNames);
+    }
+
+    private bool TryGetCompletedTrainerEditorPreload(out TrainerEditorPreloadData preload)
+    {
+        var task = TrainerEditorPreloadTask;
+        if (task is { IsCompletedSuccessfully: true })
+        {
+            preload = task.Result;
+            return true;
+        }
+
+        preload = default;
+        return false;
+    }
+
     private void RegisterTrainerItemLazyLoads()
     {
         foreach (var combo in GetTrainerItemCombos())
@@ -540,12 +602,20 @@ public partial class BTTE : Form
         if (PokemonEditorListsLoaded)
             return;
 
-        abilitylist = Game.GetStrings(TextName.AbilityNames);
-        specieslist = Game.GetStrings(TextName.SpeciesNames);
-        natures = Game.GetStrings(TextName.Natures);
+        if (!TryGetCompletedTrainerEditorPreload(out var preload))
+            preload = LoadTrainerEditorPreloadData();
 
-        specieslist[0] = "---";
-        abilitylist[0] = "(None)";
+        ApplyPokemonEditorLists(preload);
+    }
+
+    private void ApplyPokemonEditorLists(TrainerEditorPreloadData preload)
+    {
+        if (PokemonEditorListsLoaded)
+            return;
+
+        abilitylist = preload.Abilities;
+        specieslist = preload.Species;
+        natures = preload.Natures;
 
         SetComboItems(CB_Species, specieslist);
         SetComboItems(CB_Item, itemlist);
@@ -557,7 +627,8 @@ public partial class BTTE : Form
         CB_Gender.Items.Add("♂ / Male");
         CB_Gender.Items.Add("♀ / Female");
         CB_Form.Items.Add("");
-        CB_Species.SelectedIndex = 0;
+        if (CB_Species.SelectedIndex < 0)
+            CB_Species.SelectedIndex = 0;
 
         PokemonEditorListsLoaded = true;
     }
@@ -567,8 +638,18 @@ public partial class BTTE : Form
         if (MoveListLoaded)
             return;
 
-        movelist = EditorUtil.SanitizeMoveList(Game.GetStrings(TextName.MoveNames));
-        movelist[0] = "(None)";
+        if (!TryGetCompletedTrainerEditorPreload(out var preload))
+            preload = LoadTrainerEditorPreloadData();
+
+        ApplyMoveList(preload);
+    }
+
+    private void ApplyMoveList(TrainerEditorPreloadData preload)
+    {
+        if (MoveListLoaded)
+            return;
+
+        movelist = preload.Moves;
 
         SetComboItems(CB_Move1, movelist);
         SetComboItems(CB_Move2, movelist);
@@ -586,7 +667,18 @@ public partial class BTTE : Form
         if (StatsInitialized)
             return;
 
-        types = Game.GetStrings(TextName.TypeNames);
+        if (!TryGetCompletedTrainerEditorPreload(out var preload))
+            preload = LoadTrainerEditorPreloadData();
+
+        ApplyStatsTypes(preload);
+    }
+
+    private void ApplyStatsTypes(TrainerEditorPreloadData preload)
+    {
+        if (StatsInitialized)
+            return;
+
+        types = preload.Types;
         Stats.Initialize(types);
         StatsInitialized = true;
     }
@@ -1384,6 +1476,13 @@ public partial class BTTE : Form
             "Close");
 
     private readonly record struct TeamSpriteKey(ushort Species, byte Form, byte Gender, int HeldItem, bool Shiny);
+
+    private readonly record struct TrainerEditorPreloadData(
+        string[] Abilities,
+        string[] Species,
+        string[] Natures,
+        string[] Moves,
+        string[] Types);
 }
 
 public static class FormUtil

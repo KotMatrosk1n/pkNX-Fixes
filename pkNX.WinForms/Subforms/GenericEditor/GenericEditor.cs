@@ -395,7 +395,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         SuppressEntryAutoComplete = true;
         if (CB_EntryName.SelectionLength == 0)
         {
-            var caret = CB_EntryName.SelectionStart;
+            var caret = GetEntrySelectionStart();
             var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < CB_EntryName.Text.Length;
             if (!canDelete)
                 SuppressEntryAutoComplete = false;
@@ -403,7 +403,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         }
 
         var text = CB_EntryName.Text;
-        var selectionStart = Math.Min(CB_EntryName.SelectionStart, text.Length);
+        var selectionStart = GetEntrySelectionStart();
         var newText = e.KeyCode == Keys.Back && selectionStart > 0
             ? text[..(selectionStart - 1)]
             : text[..selectionStart];
@@ -452,8 +452,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         CB_EntryName.Items.AddRange(matches);
         CB_EntryName.EndUpdate();
         CB_EntryName.Text = displayText;
-        CB_EntryName.SelectionStart = selectionStart;
-        CB_EntryName.SelectionLength = selectionLength;
+        SelectEntryText(selectionStart, selectionLength);
         SuppressEntrySelectionChanged = false;
         UpdatingEntryFilter = false;
 
@@ -464,8 +463,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     {
         UpdatingEntryFilter = true;
         CB_EntryName.Text = text;
-        CB_EntryName.SelectionStart = text.Length;
-        CB_EntryName.SelectionLength = 0;
+        SelectEntryText(text.Length, 0);
         UpdatingEntryFilter = false;
         FilterEntryEntries(false);
     }
@@ -603,7 +601,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private string GetEntrySearchText()
     {
         var text = CB_EntryName.Text;
-        var selectionStart = Math.Min(CB_EntryName.SelectionStart, text.Length);
+        var selectionStart = GetEntrySelectionStart();
         return selectionStart <= 0 ? text : text[..selectionStart];
     }
 
@@ -639,8 +637,21 @@ public sealed partial class GenericEditor<T> : Form where T : class
             return;
 
         CB_EntryName.Text = EntryEntries[index].Text;
-        CB_EntryName.SelectionStart = 0;
-        CB_EntryName.SelectionLength = 0;
+        SelectEntryText(0, 0);
+    }
+
+    private int GetEntrySelectionStart()
+    {
+        var textLength = CB_EntryName.Text.Length;
+        return Math.Clamp(CB_EntryName.SelectionStart, 0, textLength);
+    }
+
+    private void SelectEntryText(int start, int length)
+    {
+        var textLength = CB_EntryName.Text.Length;
+        start = Math.Clamp(start, 0, textLength);
+        length = Math.Clamp(length, 0, textLength - start);
+        CB_EntryName.Select(start, length);
     }
 
     private void RestoreSelectedEntryText()

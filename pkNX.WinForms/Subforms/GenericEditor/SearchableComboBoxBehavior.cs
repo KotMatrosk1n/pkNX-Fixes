@@ -175,7 +175,7 @@ public sealed class SearchableComboBoxBehavior
             return;
 
         var text = Combo.Text;
-        var selectionStart = Math.Min(Combo.SelectionStart, text.Length);
+        var selectionStart = GetSelectionStart();
         var newText = e.KeyCode == Keys.Back && selectionStart > 0
             ? text[..(selectionStart - 1)]
             : text[..selectionStart];
@@ -195,8 +195,7 @@ public sealed class SearchableComboBoxBehavior
 
         UpdatingText = true;
         Combo.Text = userText;
-        Combo.SelectionStart = userText.Length;
-        Combo.SelectionLength = 0;
+        SelectText(userText.Length, 0);
         UpdatingText = false;
 
         ShowSearchList(userText, matches);
@@ -206,8 +205,7 @@ public sealed class SearchableComboBoxBehavior
     {
         UpdatingText = true;
         Combo.Text = text;
-        Combo.SelectionStart = text.Length;
-        Combo.SelectionLength = 0;
+        SelectText(text.Length, 0);
         UpdatingText = false;
         FilterEntries();
     }
@@ -369,8 +367,7 @@ public sealed class SearchableComboBoxBehavior
 
         UpdatingText = true;
         Combo.Text = GetItemText(index);
-        Combo.SelectionStart = 0;
-        Combo.SelectionLength = 0;
+        SelectText(0, 0);
         UpdatingText = false;
     }
 
@@ -435,11 +432,25 @@ public sealed class SearchableComboBoxBehavior
     private string GetSearchText()
     {
         var text = Combo.Text;
-        var selectionStart = Math.Min(Combo.SelectionStart, text.Length);
+        var selectionStart = GetSelectionStart();
         return selectionStart <= 0 ? text : text[..selectionStart];
     }
 
     private string GetItemText(int index) => Combo.GetItemText(Combo.Items[index]) ?? string.Empty;
+
+    private int GetSelectionStart()
+    {
+        var textLength = Combo.Text.Length;
+        return Math.Clamp(Combo.SelectionStart, 0, textLength);
+    }
+
+    private void SelectText(int start, int length)
+    {
+        var textLength = Combo.Text.Length;
+        start = Math.Clamp(start, 0, textLength);
+        length = Math.Clamp(length, 0, textLength - start);
+        Combo.Select(start, length);
+    }
 
     private void SearchList_BeforeMouseWheel(object? sender, SearchMouseWheelEventArgs e)
     {
