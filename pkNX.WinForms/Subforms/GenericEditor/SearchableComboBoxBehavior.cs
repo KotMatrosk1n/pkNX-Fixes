@@ -2,21 +2,24 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
 namespace pkNX.WinForms;
 
 public sealed class SearchableComboBoxBehavior
 {
-    private readonly Form Owner;
+    private static readonly ConditionalWeakTable<ComboBox, SearchableComboBoxBehavior> RegisteredCombos = new();
+    private static readonly ConditionalWeakTable<DataGridView, GridComboRegistration> RegisteredGrids = new();
+
+    private readonly Control OwnerScope;
     private readonly ComboBox Combo;
     private readonly SearchListBox SearchList = new();
     private bool UpdatingText;
-    private bool SuppressAutoComplete;
 
-    public SearchableComboBoxBehavior(Form owner, ComboBox combo)
+    public SearchableComboBoxBehavior(Control owner, ComboBox combo)
     {
-        Owner = owner;
+        OwnerScope = owner;
         Combo = combo;
 
         Combo.DropDownStyle = ComboBoxStyle.DropDown;
@@ -26,16 +29,11 @@ public sealed class SearchableComboBoxBehavior
         Combo.ItemHeight = 22;
         Combo.DropDownHeight = 1;
         Combo.DrawItem += DrawComboItem;
-        Combo.TextUpdate += (_, _) =>
-        {
-            var append = !SuppressAutoComplete;
-            SuppressAutoComplete = false;
-            FilterEntries(append);
-        };
+        Combo.TextUpdate += (_, _) => FilterEntries();
         Combo.DropDown += (_, _) =>
         {
             var closeCustomDropDown = SearchList.Visible;
-            Owner.BeginInvoke((MethodInvoker)(() =>
+            BeginInvokeOnUi(() =>
             {
                 Combo.DroppedDown = false;
                 if (closeCustomDropDown)
@@ -46,19 +44,18 @@ public sealed class SearchableComboBoxBehavior
                 }
 
                 ShowDropDownList();
-            }));
+            });
         };
         Combo.DropDownClosed += (_, _) => Combo.DroppedDown = false;
         Combo.KeyDown += Combo_KeyDown;
-        Combo.Leave += (_, _) => Owner.BeginInvoke((MethodInvoker)(() =>
+        Combo.Leave += (_, _) => BeginInvokeOnUi(() =>
         {
             if (SearchList.Focused)
                 return;
 
-            if (!CommitSelectionFromText())
-                RestoreSelectedText();
+            RestoreSelectedText();
             HideSearchList();
-        }));
+        });
 
         SearchList.BackColor = WinFormsTheme.InputBackground;
         SearchList.BorderStyle = BorderStyle.FixedSingle;
@@ -69,18 +66,30 @@ public sealed class SearchableComboBoxBehavior
         SearchList.ItemHeight = 22;
         SearchList.Visible = false;
         SearchList.DrawItem += DrawSearchListItem;
-        SearchList.Click += (_, _) => CommitSearchListSelection();
+        SearchList.MouseClick += SearchList_MouseClick;
         SearchList.MouseMove += SearchList_MouseMove;
         SearchList.BeforeMouseWheel += SearchList_BeforeMouseWheel;
         SearchList.KeyDown += SearchList_KeyDown;
-        SearchList.Leave += (_, _) => Owner.BeginInvoke((MethodInvoker)(() =>
+        SearchList.Leave += (_, _) => BeginInvokeOnUi(() =>
         {
             if (Combo.Focused)
                 return;
 
             HideSearchList();
-        }));
+        });
     }
+
+    public static void Register(Control owner, params ComboBox[] comboBoxes)
+    {
+        foreach (var comboBox in comboBoxes)
+        {
+            if (comboBox != null)
+                _ = RegisteredCombos.GetValue(comboBox, combo => new SearchableComboBoxBehavior(owner, combo));
+        }
+    }
+
+    public static void RegisterGrid(DataGridView grid)
+        => _ = RegisteredGrids.GetValue(grid, static gridControl => new GridComboRegistration(gridControl));
 
     private void Combo_KeyDown(object? sender, KeyEventArgs e)
     {
@@ -144,46 +153,49 @@ public sealed class SearchableComboBoxBehavior
         }
     }
 
+    private void SearchList_MouseClick(object? sender, MouseEventArgs e)
+    {
+        var index = SearchList.IndexFromPoint(e.Location);
+        if ((uint)index >= (uint)SearchList.Items.Count || SearchList.Items[index] is not ComboEntry entry)
+            return;
+
+        CommitSearchListEntry(entry);
+    }
+
+    private void SearchList_MouseMove(object? sender, MouseEventArgs e)
+    {
+        var index = SearchList.IndexFromPoint(e.Location);
+        if ((uint)index < (uint)SearchList.Items.Count && SearchList.SelectedIndex != index)
+            SearchList.SelectedIndex = index;
+    }
+
     private void HandleDeleteKey(KeyEventArgs e)
     {
-        SuppressAutoComplete = true;
         if (Combo.SelectionLength == 0)
-        {
-            var caret = Combo.SelectionStart;
-            var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < Combo.Text.Length;
-            if (!canDelete)
-                SuppressAutoComplete = false;
             return;
-        }
 
         var text = Combo.Text;
-        var selectionStart = Math.Min(Combo.SelectionStart, text.Length);
+        var selectionStart = GetSelectionStart();
         var newText = e.KeyCode == Keys.Back && selectionStart > 0
             ? text[..(selectionStart - 1)]
             : text[..selectionStart];
 
         SetSearchText(newText);
-        SuppressAutoComplete = false;
         e.Handled = true;
         e.SuppressKeyPress = true;
     }
 
-    private void FilterEntries(bool appendAutoComplete)
+    private void FilterEntries()
     {
         if (UpdatingText)
             return;
 
         var userText = GetSearchText();
         var matches = GetMatches(userText).ToArray();
-        var autoCompleteMatch = appendAutoComplete ? GetAutoCompleteMatch(userText, matches) : null;
-        var displayText = autoCompleteMatch?.Text ?? userText;
-        var selectionStart = autoCompleteMatch == null ? userText.Length : Math.Min(userText.Length, autoCompleteMatch.Text.Length);
-        var selectionLength = autoCompleteMatch == null ? 0 : autoCompleteMatch.Text.Length - selectionStart;
 
         UpdatingText = true;
-        Combo.Text = displayText;
-        Combo.SelectionStart = selectionStart;
-        Combo.SelectionLength = selectionLength;
+        Combo.Text = userText;
+        SelectText(userText.Length, 0);
         UpdatingText = false;
 
         ShowSearchList(userText, matches);
@@ -193,10 +205,9 @@ public sealed class SearchableComboBoxBehavior
     {
         UpdatingText = true;
         Combo.Text = text;
-        Combo.SelectionStart = text.Length;
-        Combo.SelectionLength = 0;
+        SelectText(text.Length, 0);
         UpdatingText = false;
-        FilterEntries(false);
+        FilterEntries();
     }
 
     private void ShowDropDownList()
@@ -232,8 +243,9 @@ public sealed class SearchableComboBoxBehavior
 
     private void ShowSearchList(string text, IReadOnlyList<ComboEntry> matches, int preferredSelectionIndex = 0)
     {
-        if (SearchList.Parent != Owner)
-            Owner.Controls.Add(SearchList);
+        var owner = GetPopupOwner();
+        if (SearchList.Parent != owner)
+            owner.Controls.Add(SearchList);
 
         SearchList.BeginUpdate();
         SearchList.Items.Clear();
@@ -247,29 +259,82 @@ public sealed class SearchableComboBoxBehavior
             return;
         }
 
-        const int maxVisibleRows = 12;
-        var visibleRows = Math.Min(matches.Count, maxVisibleRows);
-        var screenLocation = Combo.Parent?.PointToScreen(Combo.Location) ?? Owner.PointToScreen(Combo.Location);
-        var location = Owner.PointToClient(new Point(screenLocation.X, screenLocation.Y + Combo.Height));
-        var availableHeight = Math.Max(SearchList.ItemHeight + 2, Owner.ClientSize.Height - location.Y - 4);
-        var height = Math.Min(availableHeight, visibleRows * SearchList.ItemHeight + 2);
-        var width = Math.Min(Math.Max(Combo.Width, Combo.DropDownWidth), Owner.ClientSize.Width - location.X - 4);
-
-        SearchList.Bounds = new Rectangle(location.X, location.Y, Math.Max(Combo.Width, width), height);
+        SearchList.Bounds = GetPopupBounds(owner, Combo, Math.Max(Combo.Width, Combo.DropDownWidth), SearchList.ItemHeight, matches.Count, 12);
         SearchList.Visible = true;
         SearchList.BringToFront();
         var selectedIndex = Math.Clamp(preferredSelectionIndex, 0, matches.Count - 1);
+        var visibleRows = Math.Max(1, SearchList.ClientSize.Height / Math.Max(1, SearchList.ItemHeight));
         SearchList.SelectedIndex = selectedIndex;
         SearchList.TopIndex = Math.Clamp(selectedIndex - visibleRows / 2, 0, Math.Max(0, matches.Count - visibleRows));
     }
 
-    private void HideSearchList() => SearchList.Visible = false;
+    public static Rectangle GetPopupBounds(Control owner, Control anchor, int preferredWidth, int itemHeight, int itemCount, int maxVisibleRows)
+    {
+        const int margin = 4;
+        var client = owner.ClientSize;
+        var availableWidth = Math.Max(1, client.Width - margin * 2);
+        var minimumWidth = Math.Min(Math.Max(1, anchor.Width), availableWidth);
+        var width = Math.Clamp(Math.Max(anchor.Width, preferredWidth), minimumWidth, availableWidth);
+
+        var anchorScreen = anchor.RectangleToScreen(anchor.ClientRectangle);
+        var anchorLocation = owner.PointToClient(anchorScreen.Location);
+        var anchorBounds = new Rectangle(anchorLocation, anchor.Size);
+        var xMax = Math.Max(margin, client.Width - width - margin);
+        var x = Math.Clamp(anchorBounds.Left, margin, xMax);
+
+        var rows = Math.Max(1, Math.Min(itemCount, maxVisibleRows));
+        var minimumHeight = Math.Max(1, itemHeight) + 2;
+        var desiredHeight = Math.Max(minimumHeight, rows * Math.Max(1, itemHeight) + 2);
+        var maxHeight = Math.Max(1, client.Height - margin * 2);
+        var belowSpace = Math.Max(0, client.Height - anchorBounds.Bottom - margin);
+        var aboveSpace = Math.Max(0, anchorBounds.Top - margin);
+        var openBelow = belowSpace >= Math.Min(desiredHeight, minimumHeight) || belowSpace >= aboveSpace;
+        var availableHeight = openBelow ? belowSpace : aboveSpace;
+        var height = Math.Min(desiredHeight, Math.Min(maxHeight, Math.Max(minimumHeight, availableHeight)));
+
+        var y = openBelow ? anchorBounds.Bottom : anchorBounds.Top - height;
+        var yMax = Math.Max(margin, client.Height - height - margin);
+        y = Math.Clamp(y, margin, yMax);
+
+        return new Rectangle(x, y, width, height);
+    }
+
+    private Control GetPopupOwner()
+        => Combo.FindForm() ?? OwnerScope.FindForm() ?? OwnerScope;
+
+    private void BeginInvokeOnUi(MethodInvoker action)
+    {
+        var owner = GetPopupOwner();
+        if (!owner.IsDisposed && owner.IsHandleCreated)
+        {
+            owner.BeginInvoke(action);
+            return;
+        }
+
+        if (!Combo.IsDisposed && Combo.IsHandleCreated)
+        {
+            Combo.BeginInvoke(action);
+            return;
+        }
+
+        action();
+    }
+
+    private void HideSearchList()
+    {
+        SearchList.Visible = false;
+    }
 
     private void CommitSearchListSelection()
     {
         if (SearchList.SelectedItem is not ComboEntry entry)
             return;
 
+        CommitSearchListEntry(entry);
+    }
+
+    private void CommitSearchListEntry(ComboEntry entry)
+    {
         HideSearchList();
         Combo.Focus();
         SelectIndex(entry.Index);
@@ -302,8 +367,7 @@ public sealed class SearchableComboBoxBehavior
 
         UpdatingText = true;
         Combo.Text = GetItemText(index);
-        Combo.SelectionStart = 0;
-        Combo.SelectionLength = 0;
+        SelectText(0, 0);
         UpdatingText = false;
     }
 
@@ -347,15 +411,6 @@ public sealed class SearchableComboBoxBehavior
         return 3;
     }
 
-    private static ComboEntry? GetAutoCompleteMatch(string text, IReadOnlyList<ComboEntry> matches)
-    {
-        text = text.Trim();
-        if (text.Length == 0)
-            return null;
-
-        return matches.FirstOrDefault(entry => entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase));
-    }
-
     private int FindIndex(string text, bool allowPrefix)
     {
         text = text.Trim();
@@ -377,20 +432,24 @@ public sealed class SearchableComboBoxBehavior
     private string GetSearchText()
     {
         var text = Combo.Text;
-        var selectionStart = Math.Min(Combo.SelectionStart, text.Length);
+        var selectionStart = GetSelectionStart();
         return selectionStart <= 0 ? text : text[..selectionStart];
     }
 
     private string GetItemText(int index) => Combo.GetItemText(Combo.Items[index]) ?? string.Empty;
 
-    private void SearchList_MouseMove(object? sender, MouseEventArgs e)
+    private int GetSelectionStart()
     {
-        if (SearchList.Items.Count == 0)
-            return;
+        var textLength = Combo.Text.Length;
+        return Math.Clamp(Combo.SelectionStart, 0, textLength);
+    }
 
-        var index = SearchList.IndexFromPoint(e.Location);
-        if (index >= 0 && index < SearchList.Items.Count && index != SearchList.SelectedIndex)
-            SearchList.SelectedIndex = index;
+    private void SelectText(int start, int length)
+    {
+        var textLength = Combo.Text.Length;
+        start = Math.Clamp(start, 0, textLength);
+        length = Math.Clamp(length, 0, textLength - start);
+        Combo.Select(start, length);
     }
 
     private void SearchList_BeforeMouseWheel(object? sender, SearchMouseWheelEventArgs e)
@@ -398,10 +457,29 @@ public sealed class SearchableComboBoxBehavior
         if (!SearchList.Visible || SearchList.Items.Count == 0)
             return;
 
-        var direction = e.MouseEvent.Delta < 0 ? 1 : -1;
-        var selected = Math.Max(0, SearchList.SelectedIndex);
-        SearchList.SelectedIndex = Math.Clamp(selected + direction, 0, SearchList.Items.Count - 1);
+        ScrollListByWheel(SearchList, e.MouseEvent.Delta);
+        SelectRowUnderMouse(SearchList);
         e.Handled = true;
+    }
+
+    private static void ScrollListByWheel(ListBox list, int delta)
+    {
+        if (list.Items.Count == 0)
+            return;
+
+        var visibleRows = Math.Max(1, list.ClientSize.Height / Math.Max(1, list.ItemHeight));
+        var maxTopIndex = Math.Max(0, list.Items.Count - visibleRows);
+        var scrollLines = SystemInformation.MouseWheelScrollLines <= 0 ? 1 : SystemInformation.MouseWheelScrollLines;
+        var direction = delta < 0 ? 1 : -1;
+        list.TopIndex = Math.Clamp(list.TopIndex + direction * scrollLines, 0, maxTopIndex);
+    }
+
+    private static void SelectRowUnderMouse(ListBox list)
+    {
+        var location = list.PointToClient(Cursor.Position);
+        var index = list.IndexFromPoint(location);
+        if ((uint)index < (uint)list.Items.Count && list.SelectedIndex != index)
+            list.SelectedIndex = index;
     }
 
     private static void DrawComboItem(object? sender, DrawItemEventArgs e)
@@ -471,5 +549,22 @@ public sealed class SearchableComboBoxBehavior
     {
         public MouseEventArgs MouseEvent { get; } = mouseEvent;
         public bool Handled { get; set; }
+    }
+
+    private sealed class GridComboRegistration
+    {
+        private readonly DataGridView Grid;
+
+        public GridComboRegistration(DataGridView grid)
+        {
+            Grid = grid;
+            Grid.EditingControlShowing += Grid_EditingControlShowing;
+        }
+
+        private void Grid_EditingControlShowing(object? sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            if (e.Control is ComboBox comboBox)
+                Register((Control?)Grid.FindForm() ?? Grid, comboBox);
+        }
     }
 }

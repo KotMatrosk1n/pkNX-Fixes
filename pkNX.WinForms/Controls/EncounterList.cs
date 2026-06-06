@@ -68,6 +68,7 @@ public partial class EncounterList : UserControl
         dgv.Columns.Add(dgvSpecies);
         dgv.Columns.Add(dgvForm);
         dgv.Columns.Add(dgvPercent);
+        SearchableComboBoxBehavior.RegisterGrid(dgv);
 
         dgv.CellValueChanged += (s, e) =>
         {

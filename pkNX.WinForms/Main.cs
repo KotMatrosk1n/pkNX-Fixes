@@ -29,6 +29,7 @@ public partial class Main : Form
     public Main()
     {
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Lang.ComboBox);
         SpriteName.AllowShinySprite = true;
         SpriteBuilderUtil.SpriterPreference = SpriteBuilderPreference.ForceSprites;
 

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using pkNX.Game;
+using pkNX.WinForms;
 
 namespace pkNX.WinForms.Subforms;
 
@@ -19,6 +20,7 @@ public partial class MapViewer9 : Form
         Map = new(ROM = rom);
 
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Field, CB_Map);
         Loading = true;
         CB_Field.Items.AddRange("Paldea", "Kitakami", "Terarium");
         Loading = false;

@@ -31,7 +31,7 @@ internal class EditorSWSH : EditorBase
     [EditorCallable(EditorCategory.None, editorName: "Candy Builder", toolset: EditorToolset.RoyalSword, description: "Royal Sword Candy Builder: create, validate, and export the Royal Candy item/patch workflow.")]
     public void RoyalSwordCandyBuilder()
     {
-        using var form = new RoyalSwordCandyBuilderForm(ROM.PathRomFS, ROM.PathExeFS);
+        using var form = new RoyalSwordCandyBuilderForm(ROM.PathRomFS, ROM.PathExeFS, ROM.Game);
         form.ShowDialog();
     }
 

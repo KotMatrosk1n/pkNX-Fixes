@@ -45,6 +45,7 @@ public sealed class RoyalSwordFlagworkBrowser : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, TableFilter);
         LoadEntries();
         RefreshTableFilter();
         RefreshGrid();
@@ -417,10 +418,7 @@ public sealed class RoyalSwordFlagworkBrowser : Form
 
     private void ApplyTheme()
     {
-        BackColor = SystemColors.Control;
-        EntryGrid.BackgroundColor = SystemColors.Window;
-        DetailsText.BackColor = SystemColors.Window;
-        DetailsText.ForeColor = SystemColors.WindowText;
+        WinFormsTheme.Apply(this);
     }
 
     private sealed record FlagworkEntry(string Table, string Source, int Index, string Kind, string Name, ulong Hash);

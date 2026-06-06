@@ -59,6 +59,7 @@ public sealed partial class SSWE : Form
     public SSWE(GameManagerSWSH rom, EncounterArchive sym, EncounterArchive hid)
     {
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Location);
         Symbols = sym;
         Hidden = hid;
         ROM = rom;

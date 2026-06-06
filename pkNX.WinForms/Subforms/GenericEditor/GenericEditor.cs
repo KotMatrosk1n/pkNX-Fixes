@@ -258,7 +258,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
             if (EntrySearchList?.Focused == true)
                 return;
 
-            CommitEntrySelectionFromText(allowPrefix: true);
+            RestoreSelectedEntryText();
             HideEntrySearchList();
         }));
         CB_EntryName.KeyDown += CB_EntryName_KeyDown;
@@ -276,7 +276,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         };
         EntrySearchList.BeforeMouseWheel += EntrySearchList_BeforeMouseWheel;
         EntrySearchList.DrawItem += DrawEntryListItem;
-        EntrySearchList.Click += (_, _) => CommitEntryListSelection();
+        EntrySearchList.MouseClick += EntrySearchList_MouseClick;
         EntrySearchList.MouseMove += EntrySearchList_MouseMove;
         EntrySearchList.KeyDown += (_, e) =>
         {
@@ -305,23 +305,35 @@ public sealed partial class GenericEditor<T> : Form where T : class
         }));
     }
 
-    private void EntrySearchList_MouseMove(object? sender, MouseEventArgs e)
-    {
-        if (EntrySearchList is not { Items.Count: > 0 } list)
-            return;
-
-        var index = list.IndexFromPoint(e.Location);
-        if (index >= 0 && index < list.Items.Count && index != list.SelectedIndex)
-            list.SelectedIndex = index;
-    }
-
     private void EntrySearchList_BeforeMouseWheel(object? sender, EntrySelectorMouseWheelEventArgs e)
     {
         if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
         {
-            MoveEntrySearchSelection(list, e.MouseEvent.Delta);
+            ScrollEntrySearchListByWheel(list, e.MouseEvent.Delta);
             e.Handled = true;
         }
+    }
+
+    private void EntrySearchList_MouseClick(object? sender, MouseEventArgs e)
+    {
+        if (EntrySearchList == null)
+            return;
+
+        var index = EntrySearchList.IndexFromPoint(e.Location);
+        if ((uint)index >= (uint)EntrySearchList.Items.Count || EntrySearchList.Items[index] is not EntryComboEntry entry)
+            return;
+
+        CommitEntryListEntry(entry);
+    }
+
+    private void EntrySearchList_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (EntrySearchList == null)
+            return;
+
+        var index = EntrySearchList.IndexFromPoint(e.Location);
+        if ((uint)index < (uint)EntrySearchList.Items.Count && EntrySearchList.SelectedIndex != index)
+            EntrySearchList.SelectedIndex = index;
     }
 
     private void CB_EntryName_KeyDown(object? sender, KeyEventArgs e)
@@ -364,7 +376,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     {
         if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
         {
-            MoveEntrySearchSelection(list, e.MouseEvent.Delta);
+            ScrollEntrySearchListByWheel(list, e.MouseEvent.Delta);
             e.Handled = true;
             return;
         }
@@ -383,7 +395,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         SuppressEntryAutoComplete = true;
         if (CB_EntryName.SelectionLength == 0)
         {
-            var caret = CB_EntryName.SelectionStart;
+            var caret = GetEntrySelectionStart();
             var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < CB_EntryName.Text.Length;
             if (!canDelete)
                 SuppressEntryAutoComplete = false;
@@ -391,7 +403,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         }
 
         var text = CB_EntryName.Text;
-        var selectionStart = Math.Min(CB_EntryName.SelectionStart, text.Length);
+        var selectionStart = GetEntrySelectionStart();
         var newText = e.KeyCode == Keys.Back && selectionStart > 0
             ? text[..(selectionStart - 1)]
             : text[..selectionStart];
@@ -440,8 +452,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         CB_EntryName.Items.AddRange(matches);
         CB_EntryName.EndUpdate();
         CB_EntryName.Text = displayText;
-        CB_EntryName.SelectionStart = selectionStart;
-        CB_EntryName.SelectionLength = selectionLength;
+        SelectEntryText(selectionStart, selectionLength);
         SuppressEntrySelectionChanged = false;
         UpdatingEntryFilter = false;
 
@@ -452,8 +463,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     {
         UpdatingEntryFilter = true;
         CB_EntryName.Text = text;
-        CB_EntryName.SelectionStart = text.Length;
-        CB_EntryName.SelectionLength = 0;
+        SelectEntryText(text.Length, 0);
         UpdatingEntryFilter = false;
         FilterEntryEntries(false);
     }
@@ -514,17 +524,11 @@ public sealed partial class GenericEditor<T> : Form where T : class
             return;
         }
 
-        const int maxVisibleRows = 12;
-        var visibleRows = Math.Min(matches.Count, maxVisibleRows);
-        var screenLocation = CB_EntryName.Parent?.PointToScreen(CB_EntryName.Location) ?? PointToScreen(CB_EntryName.Location);
-        var location = PointToClient(new Point(screenLocation.X, screenLocation.Y + CB_EntryName.Height));
-        var availableHeight = Math.Max(EntrySearchList.ItemHeight + 2, ClientSize.Height - location.Y - 4);
-        var height = Math.Min(availableHeight, visibleRows * EntrySearchList.ItemHeight + 2);
-
-        EntrySearchList.Bounds = new Rectangle(location.X, location.Y, CB_EntryName.Width, height);
+        EntrySearchList.Bounds = SearchableComboBoxBehavior.GetPopupBounds(this, CB_EntryName, CB_EntryName.Width, EntrySearchList.ItemHeight, matches.Count, 12);
         EntrySearchList.Visible = true;
         EntrySearchList.BringToFront();
         var selectedIndex = Math.Clamp(preferredSelectionIndex, 0, matches.Count - 1);
+        var visibleRows = Math.Max(1, EntrySearchList.ClientSize.Height / Math.Max(1, EntrySearchList.ItemHeight));
         EntrySearchList.SelectedIndex = selectedIndex;
         EntrySearchList.TopIndex = Math.Clamp(selectedIndex - visibleRows / 2, 0, Math.Max(0, matches.Count - visibleRows));
     }
@@ -540,6 +544,11 @@ public sealed partial class GenericEditor<T> : Form where T : class
         if (EntrySearchList?.SelectedItem is not EntryComboEntry entry)
             return;
 
+        CommitEntryListEntry(entry);
+    }
+
+    private void CommitEntryListEntry(EntryComboEntry entry)
+    {
         HideEntrySearchList();
         CB_EntryName.Focus();
         SelectEntryIndex(entry.Index);
@@ -592,7 +601,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private string GetEntrySearchText()
     {
         var text = CB_EntryName.Text;
-        var selectionStart = Math.Min(CB_EntryName.SelectionStart, text.Length);
+        var selectionStart = GetEntrySelectionStart();
         return selectionStart <= 0 ? text : text[..selectionStart];
     }
 
@@ -628,8 +637,21 @@ public sealed partial class GenericEditor<T> : Form where T : class
             return;
 
         CB_EntryName.Text = EntryEntries[index].Text;
-        CB_EntryName.SelectionStart = 0;
-        CB_EntryName.SelectionLength = 0;
+        SelectEntryText(0, 0);
+    }
+
+    private int GetEntrySelectionStart()
+    {
+        var textLength = CB_EntryName.Text.Length;
+        return Math.Clamp(CB_EntryName.SelectionStart, 0, textLength);
+    }
+
+    private void SelectEntryText(int start, int length)
+    {
+        var textLength = CB_EntryName.Text.Length;
+        start = Math.Clamp(start, 0, textLength);
+        length = Math.Clamp(length, 0, textLength - start);
+        CB_EntryName.Select(start, length);
     }
 
     private void RestoreSelectedEntryText()
@@ -639,14 +661,25 @@ public sealed partial class GenericEditor<T> : Form where T : class
             SetEntryText(index);
     }
 
-    private static void MoveEntrySearchSelection(ListBox list, int delta)
+    private static void ScrollEntrySearchListByWheel(ListBox list, int delta)
     {
         if (list.Items.Count == 0)
             return;
 
+        var visibleRows = Math.Max(1, list.ClientSize.Height / Math.Max(1, list.ItemHeight));
+        var maxTopIndex = Math.Max(0, list.Items.Count - visibleRows);
+        var scrollLines = SystemInformation.MouseWheelScrollLines <= 0 ? 1 : SystemInformation.MouseWheelScrollLines;
         var direction = delta < 0 ? 1 : -1;
-        var selected = Math.Max(0, list.SelectedIndex);
-        list.SelectedIndex = Math.Clamp(selected + direction, 0, list.Items.Count - 1);
+        list.TopIndex = Math.Clamp(list.TopIndex + direction * scrollLines, 0, maxTopIndex);
+        SelectEntrySearchRowUnderMouse(list);
+    }
+
+    private static void SelectEntrySearchRowUnderMouse(ListBox list)
+    {
+        var location = list.PointToClient(MousePosition);
+        var index = list.IndexFromPoint(location);
+        if ((uint)index < (uint)list.Items.Count && list.SelectedIndex != index)
+            list.SelectedIndex = index;
     }
 
     private bool TryScrollMachineEntry(int delta)

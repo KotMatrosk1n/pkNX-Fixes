@@ -123,6 +123,7 @@ public sealed class ShopItemListEditorForm : Form
                 WinFormsTheme.Apply(comboBox);
             }
         };
+        SearchableComboBoxBehavior.RegisterGrid(Grid);
         Grid.BackgroundColor = SystemColors.Window;
 
         Grid.Columns.Add(new DataGridViewTextBoxColumn

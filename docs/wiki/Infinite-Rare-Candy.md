@@ -685,7 +685,13 @@ Candy Builder is the mutating editor. It can validate or build a LayeredFS outpu
 - optional max-cap probe mode;
 - generated notes and README.
 
-This is the current user-facing output tool.
+This is the current user-facing output tool. It writes into the normal Sword/Shield title-ID LayeredFS folder instead of a separate experiment folder, which lets the generated files sit beside normal pkNX editor output.
+
+The builder also treats an existing title-ID mod folder as part of the source stack. If a file already exists in the LayeredFS folder, the builder reads that file first and only falls back to the clean base dump when the mod layer does not provide it. That matters for users who already edited shops, raid rewards, placement data, message files, AMX scripts, or `exefs/main`; Royal Candy can layer on top of those changes instead of rebuilding from vanilla and accidentally discarding them.
+
+ExeFS gets a dedicated preflight before writing. If an existing `exefs/main` overlay is present, the builder first scans the executable itself for Royal Candy patch anchors. That scan decompresses the NSO text segment, decodes the ARM64 branch targets used by the Royal Candy hooks, and identifies whether the installed output looks like unlimited or custom-limit Royal Candy. Generated notes are useful for humans, but they are not the source of truth for installed-patch detection.
+
+If the existing executable is not already Royal Candy, the builder dry-runs the Royal Candy patch anchors against that overlay. Compatible executable edits can be layered. Conflicting executable edits are reported before the warning/confirm step.
 
 ## PR Timeline For This Project
 
@@ -704,6 +710,7 @@ The Infinite Rare Candy project overlaps the Royal editor integration PRs:
 | #27 | Add Royal Sword Patch Manager | Added read-only ExeFS validation for patch anchors and code caves. |
 | #28 | Add Royal Sword Candy Builder | Added the mutating LayeredFS builder for Infinite Rare Candy output. |
 | #29 | Document Infinite Rare Candy wiki | Added the first long-form technical wiki page for this project. |
+| #31 | Redesign Royal Candy editor workflow | Reworked Candy Builder into the player-facing two-button flow and added title-ID LayeredFS layering/conflict preflight behavior. |
 
 ## Why This Was Difficult
 

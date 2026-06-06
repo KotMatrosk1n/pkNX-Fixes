@@ -77,6 +77,7 @@ public sealed class RoyalSwordSaveInspector : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, ScopeFilter);
         EvaluateMilestones(null);
         RefreshGrid();
     }
@@ -552,12 +553,7 @@ public sealed class RoyalSwordSaveInspector : Form
 
     private void ApplyTheme()
     {
-        BackColor = SystemColors.Control;
-        SummaryText.BackColor = SystemColors.Window;
-        SummaryText.ForeColor = SystemColors.WindowText;
-        MilestoneGrid.BackgroundColor = SystemColors.Window;
-        DetailsText.BackColor = SystemColors.Window;
-        DetailsText.ForeColor = SystemColors.WindowText;
+        WinFormsTheme.Apply(this);
     }
 
     private enum RoyalSaveMilestoneKind

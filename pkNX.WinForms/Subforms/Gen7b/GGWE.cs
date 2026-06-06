@@ -19,6 +19,7 @@ public sealed partial class GGWE : Form
     public GGWE(GameManagerGG rom, EncounterArchive obj)
     {
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Location);
         if (obj.Table.Count == 0 || obj.Table[0].GroundTable.Count == 0)
         {
             WinFormsUtil.Error("Bad data provided.", $"Unable to parse to {nameof(EncounterArchive)} data.");

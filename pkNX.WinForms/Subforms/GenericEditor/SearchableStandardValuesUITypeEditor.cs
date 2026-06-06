@@ -126,8 +126,8 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             Results.IntegralHeight = false;
             Results.ItemHeight = 22;
             Results.Margin = Padding.Empty;
+            Results.MouseClick += Results_MouseClick;
             Results.MouseMove += Results_MouseMove;
-            Results.Click += (_, _) => CommitSelectedEntry();
             Results.KeyDown += Results_KeyDown;
             Results.DrawItem += DrawResultItem;
 
@@ -195,13 +195,12 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             if (autoCompleteMatch != null)
             {
                 SearchText.Text = autoCompleteMatch.Text;
-                SearchText.SelectionStart = Math.Min(userText.Length, autoCompleteMatch.Text.Length);
-                SearchText.SelectionLength = autoCompleteMatch.Text.Length - SearchText.SelectionStart;
+                var selectionStart = Math.Min(userText.Length, autoCompleteMatch.Text.Length);
+                SelectSearchText(selectionStart, autoCompleteMatch.Text.Length - selectionStart);
             }
             else
             {
-                SearchText.SelectionStart = Math.Min(userText.Length, SearchText.Text.Length);
-                SearchText.SelectionLength = 0;
+                SelectSearchText(Math.Min(userText.Length, SearchText.Text.Length), 0);
             }
 
             ShowMatches(matches, 0);
@@ -225,7 +224,7 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
         private string GetSearchText()
         {
             var text = SearchText.Text;
-            var selectionStart = Math.Min(SearchText.SelectionStart, text.Length);
+            var selectionStart = GetSearchSelectionStart();
             return selectionStart <= 0 ? text : text[..selectionStart];
         }
 
@@ -320,7 +319,7 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             SuppressAutoComplete = true;
             if (SearchText.SelectionLength == 0)
             {
-                var caret = SearchText.SelectionStart;
+                var caret = GetSearchSelectionStart();
                 var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < SearchText.Text.Length;
                 if (!canDelete)
                     SuppressAutoComplete = false;
@@ -328,15 +327,14 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             }
 
             var text = SearchText.Text;
-            var selectionStart = Math.Min(SearchText.SelectionStart, text.Length);
+            var selectionStart = GetSearchSelectionStart();
             var newText = e.KeyCode == Keys.Back && selectionStart > 0
                 ? text[..(selectionStart - 1)]
                 : text[..selectionStart];
 
             UpdatingFilter = true;
             SearchText.Text = newText;
-            SearchText.SelectionStart = newText.Length;
-            SearchText.SelectionLength = 0;
+            SelectSearchText(newText.Length, 0);
             UpdatingFilter = false;
             SuppressAutoComplete = false;
             Filter(appendAutoComplete: false);
@@ -362,10 +360,19 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             }
         }
 
+        private void Results_MouseClick(object? sender, MouseEventArgs e)
+        {
+            var index = Results.IndexFromPoint(e.Location);
+            if ((uint)index >= (uint)Results.Items.Count || Results.Items[index] is not StandardValueEntry entry)
+                return;
+
+            CommitEntry(entry);
+        }
+
         private void Results_MouseMove(object? sender, MouseEventArgs e)
         {
             var index = Results.IndexFromPoint(e.Location);
-            if (index >= 0 && index < Results.Items.Count && index != Results.SelectedIndex)
+            if ((uint)index < (uint)Results.Items.Count && Results.SelectedIndex != index)
                 Results.SelectedIndex = index;
         }
 
@@ -404,6 +411,11 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             if (Results.SelectedItem is not StandardValueEntry entry)
                 return;
 
+            CommitEntry(entry);
+        }
+
+        private void CommitEntry(StandardValueEntry entry)
+        {
             SelectedValue = entry.Value;
             Committed = true;
             Service.CloseDropDown();
@@ -429,6 +441,20 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
             e.DrawFocusRectangle();
         }
+
+        private int GetSearchSelectionStart()
+        {
+            var textLength = SearchText.Text.Length;
+            return Math.Clamp(SearchText.SelectionStart, 0, textLength);
+        }
+
+        private void SelectSearchText(int start, int length)
+        {
+            var textLength = SearchText.Text.Length;
+            start = Math.Clamp(start, 0, textLength);
+            length = Math.Clamp(length, 0, textLength - start);
+            SearchText.Select(start, length);
+        }
     }
 
     private sealed class SearchableValueListBox : ListBox
@@ -436,6 +462,9 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
+            var index = IndexFromPoint(e.Location);
+            if ((uint)index < (uint)Items.Count && SelectedIndex != index)
+                SelectedIndex = index;
             Cursor.Current = Cursors.Default;
         }
     }

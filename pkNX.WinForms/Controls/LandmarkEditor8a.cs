@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using pkNX.Structures.FlatBuffers.Arceus;
+using pkNX.WinForms;
 
 namespace pkNX.WinForms.Controls;
 
@@ -10,7 +11,11 @@ public partial class LandmarkEditor8a : UserControl
 {
     public IList<LandmarkItemSpawn> Spawners = [];
 
-    public LandmarkEditor8a() => InitializeComponent();
+    public LandmarkEditor8a()
+    {
+        InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Encounters);
+    }
 
     public void LoadTable(IList<LandmarkItemSpawn> table, string path)
     {
