@@ -309,7 +309,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     {
         if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
         {
-            MoveEntrySearchSelection(list, e.MouseEvent.Delta);
+            ScrollEntrySearchListByWheel(list, e.MouseEvent.Delta);
             e.Handled = true;
         }
     }
@@ -376,7 +376,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     {
         if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
         {
-            MoveEntrySearchSelection(list, e.MouseEvent.Delta);
+            ScrollEntrySearchListByWheel(list, e.MouseEvent.Delta);
             e.Handled = true;
             return;
         }
@@ -656,14 +656,25 @@ public sealed partial class GenericEditor<T> : Form where T : class
             SetEntryText(index);
     }
 
-    private static void MoveEntrySearchSelection(ListBox list, int delta)
+    private static void ScrollEntrySearchListByWheel(ListBox list, int delta)
     {
         if (list.Items.Count == 0)
             return;
 
+        var visibleRows = Math.Max(1, list.ClientSize.Height / Math.Max(1, list.ItemHeight));
+        var maxTopIndex = Math.Max(0, list.Items.Count - visibleRows);
+        var scrollLines = SystemInformation.MouseWheelScrollLines <= 0 ? 1 : SystemInformation.MouseWheelScrollLines;
         var direction = delta < 0 ? 1 : -1;
-        var selected = Math.Max(0, list.SelectedIndex);
-        list.SelectedIndex = Math.Clamp(selected + direction, 0, list.Items.Count - 1);
+        list.TopIndex = Math.Clamp(list.TopIndex + direction * scrollLines, 0, maxTopIndex);
+        SelectEntrySearchRowUnderMouse(list);
+    }
+
+    private static void SelectEntrySearchRowUnderMouse(ListBox list)
+    {
+        var location = list.PointToClient(MousePosition);
+        var index = list.IndexFromPoint(location);
+        if ((uint)index < (uint)list.Items.Count && list.SelectedIndex != index)
+            list.SelectedIndex = index;
     }
 
     private bool TryScrollMachineEntry(int delta)

@@ -450,6 +450,9 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
+            var index = IndexFromPoint(e.Location);
+            if ((uint)index < (uint)Items.Count && SelectedIndex != index)
+                SelectedIndex = index;
             Cursor.Current = Cursors.Default;
         }
     }

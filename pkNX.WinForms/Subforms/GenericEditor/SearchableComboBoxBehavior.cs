@@ -384,10 +384,29 @@ public sealed class SearchableComboBoxBehavior
         if (!SearchList.Visible || SearchList.Items.Count == 0)
             return;
 
-        var direction = e.MouseEvent.Delta < 0 ? 1 : -1;
-        var selected = Math.Max(0, SearchList.SelectedIndex);
-        SearchList.SelectedIndex = Math.Clamp(selected + direction, 0, SearchList.Items.Count - 1);
+        ScrollListByWheel(SearchList, e.MouseEvent.Delta);
+        SelectRowUnderMouse(SearchList);
         e.Handled = true;
+    }
+
+    private static void ScrollListByWheel(ListBox list, int delta)
+    {
+        if (list.Items.Count == 0)
+            return;
+
+        var visibleRows = Math.Max(1, list.ClientSize.Height / Math.Max(1, list.ItemHeight));
+        var maxTopIndex = Math.Max(0, list.Items.Count - visibleRows);
+        var scrollLines = SystemInformation.MouseWheelScrollLines <= 0 ? 1 : SystemInformation.MouseWheelScrollLines;
+        var direction = delta < 0 ? 1 : -1;
+        list.TopIndex = Math.Clamp(list.TopIndex + direction * scrollLines, 0, maxTopIndex);
+    }
+
+    private static void SelectRowUnderMouse(ListBox list)
+    {
+        var location = list.PointToClient(Cursor.Position);
+        var index = list.IndexFromPoint(location);
+        if ((uint)index < (uint)list.Items.Count && list.SelectedIndex != index)
+            list.SelectedIndex = index;
     }
 
     private static void DrawComboItem(object? sender, DrawItemEventArgs e)
