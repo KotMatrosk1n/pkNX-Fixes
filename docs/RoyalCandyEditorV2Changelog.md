@@ -28,3 +28,13 @@ This document tracks the dedicated Royal Candy editor redesign PR.
 ## Changelog
 
 - Started dedicated PR branch for the Royal Candy editor redesign.
+- Replaced the old advanced builder surface with the first Royal Candy V2 flow:
+  - validates that RomFS and ExeFS are present before enabling the editor;
+  - checks the supported Sword/Shield 1.3.2 full-DLC RomFS file count;
+  - detects Sword or Shield from pkNX metadata or `main.npdm` when possible;
+  - asks the user to confirm the game version before building;
+  - exposes only the two player-facing actions: unlimited Royal Candy or customized Royal Candy limits;
+  - keeps the proven Bag-event grant path for fresh new games;
+  - warns before writing RomFS, AMX, and ExeFS output;
+  - moves the cap ladder into editable milestone definitions with ascending-value validation;
+  - displays Gordie or Melony according to the selected game version.
