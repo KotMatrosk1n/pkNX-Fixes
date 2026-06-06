@@ -16,6 +16,7 @@ namespace pkNX.WinForms;
 public partial class BTTE : Form
 {
     private const int TrainerHeaderHeight = 42;
+    private static readonly string[] DefaultFormNames = Enumerable.Range(0, 32).Select(i => i.ToString()).ToArray();
 
     private LearnsetRandomizer? learn;
     private readonly string[][] AltForms;
@@ -30,12 +31,12 @@ public partial class BTTE : Form
     private readonly GameData Data;
     private readonly TrainerEditor Trainers;
 
-    private readonly string[] abilitylist;
-    private readonly string[] movelist;
+    private string[] abilitylist = [];
+    private string[] movelist = [];
     private readonly string[] itemlist;
-    private readonly string[] specieslist;
-    private readonly string[] types;
-    private readonly string[] natures;
+    private string[] specieslist = [];
+    private string[] types = [];
+    private string[] natures = [];
     private readonly string[] trName;
     private readonly string[] trClass;
 
@@ -59,6 +60,10 @@ public partial class BTTE : Form
     };
     private bool CloseConfirmed;
     private bool UpdatingMoneyItems;
+    private bool RandomizerSettingsLoaded;
+    private bool PokemonEditorListsLoaded;
+    private bool MoveListLoaded;
+    private bool StatsInitialized;
 
     public BTTE(GameData data, TrainerEditor editor, GameManager game)
     {
@@ -70,18 +75,13 @@ public partial class BTTE : Form
 
         Stats.Personal = Personal = data.PersonalData;
 
-        AltForms = new byte[Personal.Table.Length]
-            .Select(_ => Enumerable.Range(0, 32).Select(i => i.ToString()).ToArray()).ToArray();
+        AltForms = new string[Personal.Table.Length][];
+        Array.Fill(AltForms, DefaultFormNames);
 
-        abilitylist = Game.GetStrings(TextName.AbilityNames);
-        movelist = Game.GetStrings(TextName.MoveNames);
         itemlist = Game.GetStrings(TextName.ItemNames);
-        specieslist = Game.GetStrings(TextName.SpeciesNames);
-        types = Game.GetStrings(TextName.TypeNames);
-        natures = Game.GetStrings(TextName.Natures);
         trName = Game.GetStrings(TextName.TrainerNames);
         trClass = Game.GetStrings(TextName.TrainerClasses);
-        movelist = EditorUtil.SanitizeMoveList(movelist);
+        itemlist[0] = "(None)";
 
         AIBits = Game.Info.SWSH
             ? [CHK_AI_Basic, CHK_AI_Strong, CHK_AI_Expert, CHK_AI_Double, CHK_AI_Raid, CHK_AI_Allowance, CHK_AI_PokeChange, CHK_AI_FireGym1, CHK_AI_FireGym2, CHK_AI_Unused1, CHK_AI_Item, CHK_AI_FireGym3, CHK_AI_Unused2]
@@ -96,10 +96,6 @@ public partial class BTTE : Form
         if (CB_TrainerID.SelectedIndex < 0)
             CB_TrainerID.SelectedIndex = 0;
 
-        PG_Moves.SelectedObject = EditUtil.Settings.Move;
-        PG_RTrainer.SelectedObject = EditUtil.Settings.Trainer;
-        PG_Species.SelectedObject = EditUtil.Settings.Species;
-
         L_Gift.Visible = CB_Gift.Visible = NUD_GiftCount.Visible = Game.Info.GG;
         GB_Additional_AI.Visible = Game.Info.SWSH;
 
@@ -112,6 +108,12 @@ public partial class BTTE : Form
                 UpdateMoneyToolTip();
         };
         CB_Trainer_Class.SelectedIndexChanged += (_, _) => LoadTrainerClassBall();
+        RegisterPokemonEditorLazyLoads();
+        TC_trdata.SelectedIndexChanged += (_, _) =>
+        {
+            if (TC_trdata.SelectedTab == Tab_Rand)
+                EnsureRandomizerSettingsLoaded();
+        };
         Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
         {
             CB_TrainerID.Focus();
@@ -454,6 +456,88 @@ public partial class BTTE : Form
 
     private void SetAIToolTip(CheckBox checkBox, string text) => TrainerToolTip.SetToolTip(checkBox, text);
 
+    private void RegisterPokemonEditorLazyLoads()
+    {
+        foreach (var control in new Control[] { CB_Species, CB_Form, CB_Ability, CB_Item, CB_Nature, CB_Gender, NUD_Level, CHK_Shiny, NUD_Friendship, CHK_CanMega, NUD_MegaForm, CHK_CanDynamax })
+            control.Enter += (_, _) => EnsurePokemonEditorListsLoaded();
+
+        foreach (var control in new Control[] { CB_Move1, CB_Move2, CB_Move3, CB_Move4, B_CurrentAttack, B_HighAttack, B_Clear })
+            control.Enter += (_, _) => EnsureMoveListLoaded();
+
+        TC_trpoke.SelectedIndexChanged += (_, _) =>
+        {
+            if (TC_trpoke.SelectedTab == Tab_Stats)
+            {
+                EnsurePokemonEditorListsLoaded();
+                EnsureStatsInitialized();
+            }
+            else if (TC_trpoke.SelectedTab == Tab_Moves)
+            {
+                EnsureMoveListLoaded();
+            }
+        };
+    }
+
+    private void EnsurePokemonEditorListsLoaded()
+    {
+        if (PokemonEditorListsLoaded)
+            return;
+
+        abilitylist = Game.GetStrings(TextName.AbilityNames);
+        specieslist = Game.GetStrings(TextName.SpeciesNames);
+        natures = Game.GetStrings(TextName.Natures);
+
+        specieslist[0] = "---";
+        abilitylist[0] = "(None)";
+
+        SetComboItems(CB_Species, specieslist);
+        SetComboItems(CB_Item, itemlist);
+        SetComboItems(CB_Nature, natures.Take(25).Cast<object>().ToArray());
+        CB_Gender.Items.Add("- / Genderless/Random");
+        CB_Gender.Items.Add("♂ / Male");
+        CB_Gender.Items.Add("♀ / Female");
+        CB_Form.Items.Add("");
+        CB_Species.SelectedIndex = 0;
+
+        PokemonEditorListsLoaded = true;
+    }
+
+    private void EnsureMoveListLoaded()
+    {
+        if (MoveListLoaded)
+            return;
+
+        movelist = EditorUtil.SanitizeMoveList(Game.GetStrings(TextName.MoveNames));
+        movelist[0] = "(None)";
+
+        SetComboItems(CB_Move1, movelist);
+        SetComboItems(CB_Move2, movelist);
+        SetComboItems(CB_Move3, movelist);
+        SetComboItems(CB_Move4, movelist);
+        MoveListLoaded = true;
+    }
+
+    private void EnsureStatsInitialized()
+    {
+        if (StatsInitialized)
+            return;
+
+        types = Game.GetStrings(TextName.TypeNames);
+        Stats.Initialize(types);
+        StatsInitialized = true;
+    }
+
+    private void EnsureRandomizerSettingsLoaded()
+    {
+        if (RandomizerSettingsLoaded)
+            return;
+
+        PG_Moves.SelectedObject = EditUtil.Settings.Move;
+        PG_RTrainer.SelectedObject = EditUtil.Settings.Trainer;
+        PG_Species.SelectedObject = EditUtil.Settings.Species;
+        RandomizerSettingsLoaded = true;
+    }
+
     private void SetMoneyItemsForLevel(int highestLevel)
     {
         highestLevel = Math.Max(0, highestLevel);
@@ -559,7 +643,8 @@ public partial class BTTE : Form
     private void ClickSet(object sender, EventArgs e)
     {
         int slot = GetSlot(sender);
-        if (CB_Species.SelectedIndex == 0)
+        EnsurePokemonEditorListsLoaded();
+        if (CB_Species.SelectedIndex <= 0)
         { WinFormsUtil.Alert("Can't set empty slot."); return; }
 
         var pk = PreparePKM();
@@ -636,7 +721,7 @@ public partial class BTTE : Form
             return;
         pkm.Form = CB_Form.SelectedIndex;
 
-        if (!Stats.UpdatingFields)
+        if (StatsInitialized && !Stats.UpdatingFields)
             Stats.UpdateStats();
     }
 
@@ -650,7 +735,7 @@ public partial class BTTE : Form
         pkm.Species = (ushort)CB_Species.SelectedIndex;
         RefreshPKMSlotAbility();
 
-        if (!Stats.UpdatingFields)
+        if (StatsInitialized && !Stats.UpdatingFields)
             Stats.UpdateStats();
     }
 
@@ -669,7 +754,7 @@ public partial class BTTE : Form
         CB_Ability.Items.Add(abilitylist[pi.Ability2] + " (2)");
         CB_Ability.Items.Add(abilitylist[pi.AbilityH] + " (H)");
 
-        CB_Ability.SelectedIndex = previousAbilityIndex;
+        CB_Ability.SelectedIndex = Math.Clamp(previousAbilityIndex, -1, CB_Ability.Items.Count - 1);
     }
 
     private static string GetEntryTitle(string str, int i) => $"{str} - {i:000}";
@@ -679,33 +764,11 @@ public partial class BTTE : Form
         SetEntryTitleItems(CB_TrainerID, trName, Trainers.Length);
         SetEntryTitleItems(CB_Trainer_Class, trClass, trClass.Length);
 
-        specieslist[0] = "---";
-        abilitylist[0] = itemlist[0] = movelist[0] = "(None)";
-
-        CB_Species.Items.AddRange(specieslist);
-
-        CB_Move1.Items.AddRange(movelist);
-        CB_Move2.Items.AddRange(movelist);
-        CB_Move3.Items.AddRange(movelist);
-        CB_Move4.Items.AddRange(movelist);
-
-        Stats.Initialize(types);
-        CB_Nature.Items.Clear();
-        CB_Nature.Items.AddRange(natures.Take(25).ToArray());
-        CB_Item.Items.AddRange(itemlist);
-
-        CB_Gender.Items.Add("- / Genderless/Random");
-        CB_Gender.Items.Add("♂ / Male");
-        CB_Gender.Items.Add("♀ / Female");
-
-        CB_Form.Items.Add("");
-
-        CB_Species.SelectedIndex = 0;
-        CB_Item_1.Items.AddRange(itemlist);
-        CB_Item_2.Items.AddRange(itemlist);
-        CB_Item_3.Items.AddRange(itemlist);
-        CB_Item_4.Items.AddRange(itemlist);
-        CB_Gift.Items.AddRange(itemlist);
+        SetComboItems(CB_Item_1, itemlist);
+        SetComboItems(CB_Item_2, itemlist);
+        SetComboItems(CB_Item_3, itemlist);
+        SetComboItems(CB_Item_4, itemlist);
+        SetComboItems(CB_Gift, itemlist);
 
         SetMoneyItemsForLevel(0);
         CHK_CanMega.CheckedChanged += (s, e) => NUD_MegaForm.Visible = CHK_CanMega.Checked;
@@ -713,7 +776,6 @@ public partial class BTTE : Form
 
         CB_TrainerID.SelectedIndex = 0;
         entry = 0;
-        PopulateFields(pkm);
     }
 
     private static void SetEntryTitleItems(ComboBox comboBox, IReadOnlyList<string> names, int count)
@@ -728,6 +790,20 @@ public partial class BTTE : Form
                 var name = (uint)i < (uint)names.Count ? names[i] : string.Empty;
                 items[i] = GetEntryTitle(name, i);
             }
+            comboBox.Items.AddRange(items);
+        }
+        finally
+        {
+            comboBox.EndUpdate();
+        }
+    }
+
+    private static void SetComboItems(ComboBox comboBox, object[] items)
+    {
+        comboBox.BeginUpdate();
+        try
+        {
+            comboBox.Items.Clear();
             comboBox.Items.AddRange(items);
         }
         finally
@@ -808,6 +884,10 @@ public partial class BTTE : Form
 
     private void PopulateFields(TrainerPoke pk)
     {
+        EnsurePokemonEditorListsLoaded();
+        EnsureMoveListLoaded();
+        EnsureStatsInitialized();
+
         pkm = pk.Clone();
 
         Stats.UpdatingFields = loadingPKM = true;
@@ -849,6 +929,10 @@ public partial class BTTE : Form
 
     private TrainerPoke PreparePKM()
     {
+        EnsurePokemonEditorListsLoaded();
+        EnsureMoveListLoaded();
+        EnsureStatsInitialized();
+
         var pk = pkm.Clone();
         pk.Species = CB_Species.SelectedIndex;
         pk.Form = CB_Form.SelectedIndex;
@@ -992,6 +1076,9 @@ public partial class BTTE : Form
         if (!ConfirmDump())
             return;
 
+        EnsurePokemonEditorListsLoaded();
+        EnsureMoveListLoaded();
+
         using var sfd = new SaveFileDialog { FileName = "Trainers.txt" };
         if (sfd.ShowDialog() != DialogResult.OK)
             return;
@@ -1065,6 +1152,7 @@ public partial class BTTE : Form
     {
         if (Stats.UpdatingFields)
             return;
+        EnsureStatsInitialized();
         if (sender == CB_Nature)
             pkm.Nature = WinFormsUtil.GetIndex(CB_Nature);
         else if (sender == NUD_Level)
@@ -1077,6 +1165,8 @@ public partial class BTTE : Form
 
     private void B_HighAttack_Click(object sender, EventArgs e)
     {
+        EnsurePokemonEditorListsLoaded();
+        EnsureMoveListLoaded();
         pkm.Species = CB_Species.SelectedIndex;
         pkm.Level = (int)NUD_Level.Value;
         pkm.Form = CB_Form.SelectedIndex;
@@ -1088,6 +1178,8 @@ public partial class BTTE : Form
 
     private void B_CurrentAttack_Click(object sender, EventArgs e)
     {
+        EnsurePokemonEditorListsLoaded();
+        EnsureMoveListLoaded();
         pkm.Species = CB_Species.SelectedIndex;
         pkm.Level = (int)NUD_Level.Value;
         pkm.Form = CB_Form.SelectedIndex;
@@ -1095,10 +1187,15 @@ public partial class BTTE : Form
         SetMoves(moves);
     }
 
-    private void B_Clear_Click(object sender, EventArgs e) => SetMoves(new int[4]);
+    private void B_Clear_Click(object sender, EventArgs e)
+    {
+        EnsureMoveListLoaded();
+        SetMoves(new int[4]);
+    }
 
     private void SetMoves(IList<int> moves)
     {
+        EnsureMoveListLoaded();
         var mcb = new[] { CB_Move1, CB_Move2, CB_Move3, CB_Move4 };
         for (int i = 0; i < mcb.Length; i++)
             mcb[i].SelectedIndex = moves[i];
@@ -1129,6 +1226,8 @@ public partial class BTTE : Form
 
     private TrainerRandomizer GetRandomizer()
     {
+        EnsureRandomizerSettingsLoaded();
+
         var moves = Data.MoveData.LoadAll();
         var rmove = new MoveRandomizer(Game.Info, moves, Personal);
         int[] banned = Legal.GetBannedMoves(Game.Info.Game, moves.Length);
