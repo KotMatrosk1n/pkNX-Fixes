@@ -91,3 +91,4 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - item name/description text restores only line `1128`;
   - shop inventories, raid rewards, and placement pickups restore only entries whose base value is the repurposed source item and whose layered value matches the Royal Candy cleanup replacement;
   - the Bag-event AMX overlay is removed only when it exactly matches the clean generated Royal Candy patch, leaving custom script overlays untouched.
+  - after uninstall restores Royal Candy data, the builder sweeps the selected LayeredFS root and removes any remaining `romfs` or `exefs` overlay file that is byte-identical to the base dump, then prunes the empty folders left behind.

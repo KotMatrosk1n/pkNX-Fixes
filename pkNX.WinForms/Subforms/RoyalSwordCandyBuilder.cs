@@ -990,10 +990,11 @@ internal static class RoyalCandyLayeredFsBuilder
         }
 
         var restoredRecords = RestoreRoyalCandyRomFsToVanilla(options, results, notes, changedDirectories);
+        var identicalFilesRemoved = RemoveLayeredFilesMatchingBaseDump(options, results, notes, changedDirectories);
 
         var removedDirectories = PruneEmptyOutputDirectories(options.OutputPath, changedDirectories);
-        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), and removed {removedDirectories:N0} empty folder(s)."));
-        notes.Add($"- Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), and removed {removedDirectories:N0} empty folder(s).");
+        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), removed {identicalFilesRemoved:N0} vanilla-identical layered file(s), and removed {removedDirectories:N0} empty folder(s)."));
+        notes.Add($"- Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), removed {identicalFilesRemoved:N0} vanilla-identical layered file(s), and removed {removedDirectories:N0} empty folder(s).");
         return new(results, notes);
     }
 
@@ -2871,8 +2872,70 @@ internal static class RoyalCandyLayeredFsBuilder
         WriteOutputBytes(outputRoot, relativePath, restoredData);
         var outputPath = GetContainedOutputPath(outputRoot, relativePath);
         if (Path.GetDirectoryName(outputPath) is { } directory)
-            changedDirectories.Add(directory);
+        changedDirectories.Add(directory);
         notes.Add($"- Updated {relativePath}; Royal Candy-owned records were restored while unrelated layered data was preserved.");
+    }
+
+    private static int RemoveLayeredFilesMatchingBaseDump(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    {
+        if (!Directory.Exists(options.OutputPath))
+            return 0;
+
+        var removed = 0;
+        foreach (var outputPath in Directory.EnumerateFiles(options.OutputPath, "*", SearchOption.AllDirectories).ToArray())
+        {
+            var relativePath = Path.GetRelativePath(options.OutputPath, outputPath).Replace(Path.DirectorySeparatorChar, '/');
+            var basePath = GetBasePathForLayeredRelativePath(options, relativePath);
+            if (basePath is null || !File.Exists(basePath))
+                continue;
+
+            if (!FilesAreEqual(outputPath, basePath))
+                continue;
+
+            File.Delete(outputPath);
+            removed++;
+            if (Path.GetDirectoryName(outputPath) is { } directory)
+                changedDirectories.Add(directory);
+            notes.Add($"- Removed {relativePath}; layered file matched the base dump exactly.");
+        }
+
+        results.Add(new(removed == 0 ? "Info" : "Pass", "Uninstall", options.OutputPath, removed == 0 ? "No vanilla-identical layered files remained after uninstall." : $"Removed {removed:N0} vanilla-identical layered file(s)."));
+        return removed;
+    }
+
+    private static string? GetBasePathForLayeredRelativePath(RoyalCandyBuildOptions options, string relativePath)
+    {
+        const string RomFsPrefix = "romfs/";
+        const string ExeFsPrefix = "exefs/";
+        if (relativePath.StartsWith(RomFsPrefix, StringComparison.OrdinalIgnoreCase))
+            return GetBaseRomFsPath(options, relativePath[RomFsPrefix.Length..]);
+        if (relativePath.StartsWith(ExeFsPrefix, StringComparison.OrdinalIgnoreCase))
+            return GetBaseExeFsPath(options, relativePath[ExeFsPrefix.Length..]);
+        return null;
+    }
+
+    private static bool FilesAreEqual(string leftPath, string rightPath)
+    {
+        var leftInfo = new FileInfo(leftPath);
+        var rightInfo = new FileInfo(rightPath);
+        if (leftInfo.Length != rightInfo.Length)
+            return false;
+
+        using var left = File.OpenRead(leftPath);
+        using var right = File.OpenRead(rightPath);
+        Span<byte> leftBuffer = stackalloc byte[8192];
+        Span<byte> rightBuffer = stackalloc byte[8192];
+        while (true)
+        {
+            var leftRead = left.Read(leftBuffer);
+            var rightRead = right.Read(rightBuffer);
+            if (leftRead != rightRead)
+                return false;
+            if (leftRead == 0)
+                return true;
+            if (!leftBuffer[..leftRead].SequenceEqual(rightBuffer[..rightRead]))
+                return false;
+        }
     }
 
     private static bool DeleteOutputFile(string outputRoot, string relativePath, ISet<string> deletedDirectories)
