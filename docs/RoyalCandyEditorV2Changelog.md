@@ -85,3 +85,9 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - uninstall preflight scans layered `exefs/main` and refuses to run unless it matches a registered unlimited or custom-limit Royal Candy signature;
   - unknown ExeFS overlays remain blocked until a signature is added to the library;
   - successful uninstall removes the known Royal Candy LayeredFS output files and prunes empty folders under the selected title-ID output root.
+- Changed Royal Candy uninstall to preserve unrelated custom RomFS edits:
+  - uninstall now removes Royal Candy-owned ExeFS/notes/readme files but restores shared RomFS files record-by-record against the base dump;
+  - item id `1128` item-table indirection is restored to the vanilla raw row, and the unused appended Royal Candy row is trimmed when it is safe to do so;
+  - item name/description text restores only line `1128`;
+  - shop inventories, raid rewards, and placement pickups restore only entries whose base value is the repurposed source item and whose layered value matches the Royal Candy cleanup replacement;
+  - the Bag-event AMX overlay is removed only when it exactly matches the clean generated Royal Candy patch, leaving custom script overlays untouched.
