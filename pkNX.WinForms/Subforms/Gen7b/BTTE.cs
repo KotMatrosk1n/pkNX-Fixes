@@ -4,7 +4,6 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 using pkNX.Game;
@@ -17,8 +16,6 @@ namespace pkNX.WinForms;
 public partial class BTTE : Form
 {
     private const int TrainerHeaderHeight = 42;
-    private static readonly string[] DefaultFormNames = Enumerable.Range(0, 32).Select(i => i.ToString()).ToArray();
-    private static readonly object[] TrainerBallNames = GetTrainerBallNames();
 
     private LearnsetRandomizer? learn;
     private readonly string[][] AltForms;
@@ -33,12 +30,12 @@ public partial class BTTE : Form
     private readonly GameData Data;
     private readonly TrainerEditor Trainers;
 
-    private string[] abilitylist = [];
-    private string[] movelist = [];
+    private readonly string[] abilitylist;
+    private readonly string[] movelist;
     private readonly string[] itemlist;
-    private string[] specieslist = [];
-    private string[] types = [];
-    private string[] natures = [];
+    private readonly string[] specieslist;
+    private readonly string[] types;
+    private readonly string[] natures;
     private readonly string[] trName;
     private readonly string[] trClass;
 
@@ -46,10 +43,7 @@ public partial class BTTE : Form
     private readonly List<SearchableComboBoxBehavior> SearchableCombos = [];
     private readonly HashSet<ComboBox> SearchableRegistered = [];
     private readonly Dictionary<TeamSpriteKey, Image> TeamSpriteCache = [];
-    private const sbyte TrainerClassOwnershipUnknown = -1;
-    private const sbyte TrainerClassOwnershipShared = 0;
-    private const sbyte TrainerClassOwnershipSingleOwner = 1;
-    private sbyte[] TrainerClassOwnership = [];
+    private bool[] TrainerClassHasSingleOwner = [];
     private readonly Label L_ClassBall = new();
     private readonly ComboBox CB_ClassBall = new();
     private readonly ToolTip TrainerToolTip = new()
@@ -63,12 +57,6 @@ public partial class BTTE : Form
     };
     private bool CloseConfirmed;
     private bool UpdatingMoneyItems;
-    private bool RandomizerSettingsLoaded;
-    private bool PokemonEditorListsLoaded;
-    private bool MoveListLoaded;
-    private bool StatsInitialized;
-    private bool TrainerItemListsLoaded;
-    private Task<TrainerEditorPreloadData>? TrainerEditorPreloadTask;
 
     public BTTE(GameData data, TrainerEditor editor, GameManager game)
     {
@@ -80,13 +68,18 @@ public partial class BTTE : Form
 
         Stats.Personal = Personal = data.PersonalData;
 
-        AltForms = new string[Personal.Table.Length][];
-        Array.Fill(AltForms, DefaultFormNames);
+        AltForms = new byte[Personal.Table.Length]
+            .Select(_ => Enumerable.Range(0, 32).Select(i => i.ToString()).ToArray()).ToArray();
 
+        abilitylist = Game.GetStrings(TextName.AbilityNames);
+        movelist = Game.GetStrings(TextName.MoveNames);
         itemlist = Game.GetStrings(TextName.ItemNames);
+        specieslist = Game.GetStrings(TextName.SpeciesNames);
+        types = Game.GetStrings(TextName.TypeNames);
+        natures = Game.GetStrings(TextName.Natures);
         trName = Game.GetStrings(TextName.TrainerNames);
         trClass = Game.GetStrings(TextName.TrainerClasses);
-        itemlist[0] = "(None)";
+        movelist = EditorUtil.SanitizeMoveList(movelist);
 
         AIBits = Game.Info.SWSH
             ? [CHK_AI_Basic, CHK_AI_Strong, CHK_AI_Expert, CHK_AI_Double, CHK_AI_Raid, CHK_AI_Allowance, CHK_AI_PokeChange, CHK_AI_FireGym1, CHK_AI_FireGym2, CHK_AI_Unused1, CHK_AI_Item, CHK_AI_FireGym3, CHK_AI_Unused2]
@@ -101,31 +94,26 @@ public partial class BTTE : Form
         if (CB_TrainerID.SelectedIndex < 0)
             CB_TrainerID.SelectedIndex = 0;
 
+        PG_Moves.SelectedObject = EditUtil.Settings.Move;
+        PG_RTrainer.SelectedObject = EditUtil.Settings.Trainer;
+        PG_Species.SelectedObject = EditUtil.Settings.Species;
+
         L_Gift.Visible = CB_Gift.Visible = NUD_GiftCount.Visible = Game.Info.GG;
         GB_Additional_AI.Visible = Game.Info.SWSH;
 
         ApplyTrainerEditorTheme();
         ConfigureSearchableDropdowns();
-        RegisterTrainerItemLazyLoads();
+        ConfigureTrainerToolTips();
         CB_Money.SelectedIndexChanged += (_, _) =>
         {
             if (!UpdatingMoneyItems)
                 UpdateMoneyToolTip();
         };
         CB_Trainer_Class.SelectedIndexChanged += (_, _) => LoadTrainerClassBall();
-        RegisterPokemonEditorLazyLoads();
-        TC_trdata.SelectedIndexChanged += (_, _) =>
-        {
-            if (TC_trdata.SelectedTab == Tab_Rand)
-                EnsureRandomizerSettingsLoaded();
-        };
-        StartTrainerEditorPreload();
         Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
         {
-            ConfigureTrainerToolTips();
             CB_TrainerID.Focus();
             CB_TrainerID.SelectAll();
-            PreloadTrainerEditorListsAsync();
         }));
     }
 
@@ -245,7 +233,7 @@ public partial class BTTE : Form
         CB_ClassBall.DropDownStyle = ComboBoxStyle.DropDownList;
         CB_ClassBall.FormattingEnabled = true;
         CB_ClassBall.Name = nameof(CB_ClassBall);
-        CB_ClassBall.Items.AddRange(TrainerBallNames);
+        CB_ClassBall.Items.AddRange(GetTrainerBallNames());
         CB_ClassBall.SelectedIndexChanged += (_, _) =>
         {
             if (!loading)
@@ -347,7 +335,30 @@ public partial class BTTE : Form
             return;
 
         var count = Math.Max(Trainers.TrainerClass.Count, trClass.Length);
-        TrainerClassOwnership = Enumerable.Repeat(TrainerClassOwnershipUnknown, count).ToArray();
+        var firstOwnerNames = new string?[count];
+        var hasMultipleOwners = new bool[count];
+        for (int i = 0; i < Trainers.TrainerData.Count; i++)
+        {
+            var trainer = Trainers.ReadTrainer(Trainers.TrainerData[i]);
+            var classIndex = trainer.Class;
+            if ((uint)classIndex >= (uint)firstOwnerNames.Length)
+                continue;
+
+            var ownerName = GetTrainerClassOwnerName(i);
+            var firstOwnerName = firstOwnerNames[classIndex];
+            if (firstOwnerName is null)
+            {
+                firstOwnerNames[classIndex] = ownerName;
+            }
+            else if (!hasMultipleOwners[classIndex] && !string.Equals(firstOwnerName, ownerName, StringComparison.Ordinal))
+            {
+                hasMultipleOwners[classIndex] = true;
+            }
+        }
+
+        TrainerClassHasSingleOwner = firstOwnerNames
+            .Select((ownerName, i) => ownerName is not null && !hasMultipleOwners[i])
+            .ToArray();
     }
 
     private string GetTrainerClassOwnerName(int trainerIndex)
@@ -359,46 +370,8 @@ public partial class BTTE : Form
     private bool CanEditTrainerClassBall(int classIndex) =>
         Game.Info.SWSH
         && (uint)classIndex < (uint)Trainers.TrainerClass.Count
-        && IsTrainerClassSingleOwner(classIndex);
-
-    private bool IsTrainerClassSingleOwner(int classIndex)
-    {
-        if ((uint)classIndex >= (uint)TrainerClassOwnership.Length)
-            return false;
-
-        ref var state = ref TrainerClassOwnership[classIndex];
-        if (state == TrainerClassOwnershipUnknown)
-            state = ComputeTrainerClassHasSingleOwner(classIndex)
-                ? TrainerClassOwnershipSingleOwner
-                : TrainerClassOwnershipShared;
-
-        return state == TrainerClassOwnershipSingleOwner;
-    }
-
-    private bool ComputeTrainerClassHasSingleOwner(int classIndex)
-    {
-        string? firstOwnerName = null;
-        for (int i = 0; i < Trainers.TrainerData.Count; i++)
-        {
-            if (ReadTrainerClass(Trainers.TrainerData[i]) != classIndex)
-                continue;
-
-            var ownerName = GetTrainerClassOwnerName(i);
-            if (firstOwnerName is null)
-            {
-                firstOwnerName = ownerName;
-            }
-            else if (!string.Equals(firstOwnerName, ownerName, StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
-        return firstOwnerName is not null;
-    }
-
-    private static int ReadTrainerClass(byte[] data) =>
-        data.Length < 2 ? -1 : System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(0, 2));
+        && (uint)classIndex < (uint)TrainerClassHasSingleOwner.Length
+        && TrainerClassHasSingleOwner[classIndex];
 
     private void ConfigureSearchableDropdowns()
     {
@@ -411,6 +384,18 @@ public partial class BTTE : Form
         RegisterSearch(CB_Gender);
         if (Game.Info.SWSH)
             RegisterSearch(CB_ClassBall);
+        RegisterSearch(CB_Species);
+        RegisterSearch(CB_Item);
+        RegisterSearch(CB_Item_1);
+        RegisterSearch(CB_Item_2);
+        RegisterSearch(CB_Item_3);
+        RegisterSearch(CB_Item_4);
+        RegisterSearch(CB_Gift);
+        RegisterSearch(CB_Move1);
+        RegisterSearch(CB_Move2);
+        RegisterSearch(CB_Move3);
+        RegisterSearch(CB_Move4);
+        RegisterSearch(CB_Nature);
     }
 
     private void RegisterSearch(ComboBox comboBox)
@@ -462,238 +447,6 @@ public partial class BTTE : Form
 
     private void SetAIToolTip(CheckBox checkBox, string text) => TrainerToolTip.SetToolTip(checkBox, text);
 
-    private void RegisterPokemonEditorLazyLoads()
-    {
-        foreach (var control in new Control[] { CB_Species, CB_Form, CB_Ability, CB_Item, CB_Nature, CB_Gender, NUD_Level, CHK_Shiny, NUD_Friendship, CHK_CanMega, NUD_MegaForm, CHK_CanDynamax })
-            control.Enter += (_, _) => EnsurePokemonEditorListsLoaded();
-
-        foreach (var control in new Control[] { CB_Move1, CB_Move2, CB_Move3, CB_Move4, B_CurrentAttack, B_HighAttack, B_Clear })
-            control.Enter += (_, _) => EnsureMoveListLoaded();
-
-        TC_trpoke.SelectedIndexChanged += (_, _) =>
-        {
-            if (TC_trpoke.SelectedTab == Tab_Stats)
-            {
-                EnsurePokemonEditorListsLoaded();
-                EnsureStatsInitialized();
-            }
-            else if (TC_trpoke.SelectedTab == Tab_Moves)
-            {
-                EnsureMoveListLoaded();
-            }
-        };
-    }
-
-    private Task<TrainerEditorPreloadData> StartTrainerEditorPreload()
-        => TrainerEditorPreloadTask ??= Task.Run(LoadTrainerEditorPreloadData);
-
-    private async void PreloadTrainerEditorListsAsync()
-    {
-        try
-        {
-            var preload = await StartTrainerEditorPreload();
-            if (IsDisposed)
-                return;
-
-            await Task.Yield();
-            ApplyPokemonEditorLists(preload);
-            await Task.Yield();
-            EnsureTrainerItemListsLoaded();
-            await Task.Yield();
-            ApplyMoveList(preload);
-            await Task.Yield();
-            ApplyStatsTypes(preload);
-        }
-        catch
-        {
-            // Keep synchronous fallback paths available if background preloading fails.
-            TrainerEditorPreloadTask = null;
-        }
-    }
-
-    private TrainerEditorPreloadData LoadTrainerEditorPreloadData()
-    {
-        var abilities = Game.GetStrings(TextName.AbilityNames);
-        var species = Game.GetStrings(TextName.SpeciesNames);
-        var natureNames = Game.GetStrings(TextName.Natures);
-        var moves = EditorUtil.SanitizeMoveList(Game.GetStrings(TextName.MoveNames));
-        var typeNames = Game.GetStrings(TextName.TypeNames);
-
-        if (species.Length != 0)
-            species[0] = "---";
-        if (abilities.Length != 0)
-            abilities[0] = "(None)";
-        if (moves.Length != 0)
-            moves[0] = "(None)";
-
-        return new TrainerEditorPreloadData(abilities, species, natureNames, moves, typeNames);
-    }
-
-    private bool TryGetCompletedTrainerEditorPreload(out TrainerEditorPreloadData preload)
-    {
-        var task = TrainerEditorPreloadTask;
-        if (task is { IsCompletedSuccessfully: true })
-        {
-            preload = task.Result;
-            return true;
-        }
-
-        preload = default;
-        return false;
-    }
-
-    private void RegisterTrainerItemLazyLoads()
-    {
-        foreach (var combo in GetTrainerItemCombos())
-        {
-            combo.Enter += (_, _) => EnsureTrainerItemListsLoaded();
-            combo.DropDown += (_, _) => EnsureTrainerItemListsLoaded();
-        }
-    }
-
-    private ComboBox[] GetTrainerItemCombos() => [CB_Item_1, CB_Item_2, CB_Item_3, CB_Item_4, CB_Gift];
-
-    private void EnsureTrainerItemListsLoaded()
-    {
-        if (TrainerItemListsLoaded)
-            return;
-
-        var combos = GetTrainerItemCombos();
-        var values = combos.Select(GetTrainerItemComboValue).ToArray();
-        TrainerItemListsLoaded = true;
-
-        for (var i = 0; i < combos.Length; i++)
-        {
-            SetComboItems(combos[i], itemlist);
-            RegisterSearch(combos[i]);
-            SetTrainerItemComboValue(combos[i], values[i]);
-        }
-    }
-
-    private void SetTrainerItemComboValue(ComboBox combo, int value)
-    {
-        value = Math.Clamp(value, 0, itemlist.Length - 1);
-        combo.Tag = value;
-
-        if (TrainerItemListsLoaded)
-        {
-            combo.SelectedIndex = combo.Items.Count == 0 ? -1 : Math.Clamp(value, 0, combo.Items.Count - 1);
-            return;
-        }
-
-        combo.SelectedIndex = -1;
-        combo.Text = GetTrainerItemName(value);
-    }
-
-    private int GetTrainerItemComboValue(ComboBox combo)
-    {
-        if (combo.Items.Count != 0)
-            return Math.Clamp(combo.SelectedIndex, 0, itemlist.Length - 1);
-
-        return combo.Tag is int value
-            ? Math.Clamp(value, 0, itemlist.Length - 1)
-            : 0;
-    }
-
-    private string GetTrainerItemName(int value) => (uint)value < (uint)itemlist.Length ? itemlist[value] : $"Item {value}";
-
-    private void EnsurePokemonEditorListsLoaded()
-    {
-        if (PokemonEditorListsLoaded)
-            return;
-
-        if (!TryGetCompletedTrainerEditorPreload(out var preload))
-            preload = LoadTrainerEditorPreloadData();
-
-        ApplyPokemonEditorLists(preload);
-    }
-
-    private void ApplyPokemonEditorLists(TrainerEditorPreloadData preload)
-    {
-        if (PokemonEditorListsLoaded)
-            return;
-
-        abilitylist = preload.Abilities;
-        specieslist = preload.Species;
-        natures = preload.Natures;
-
-        SetComboItems(CB_Species, specieslist);
-        SetComboItems(CB_Item, itemlist);
-        SetComboItems(CB_Nature, natures.Take(25).Cast<object>().ToArray());
-        RegisterSearch(CB_Species);
-        RegisterSearch(CB_Item);
-        RegisterSearch(CB_Nature);
-        CB_Gender.Items.Add("- / Genderless/Random");
-        CB_Gender.Items.Add("♂ / Male");
-        CB_Gender.Items.Add("♀ / Female");
-        CB_Form.Items.Add("");
-        if (CB_Species.SelectedIndex < 0)
-            CB_Species.SelectedIndex = 0;
-
-        PokemonEditorListsLoaded = true;
-    }
-
-    private void EnsureMoveListLoaded()
-    {
-        if (MoveListLoaded)
-            return;
-
-        if (!TryGetCompletedTrainerEditorPreload(out var preload))
-            preload = LoadTrainerEditorPreloadData();
-
-        ApplyMoveList(preload);
-    }
-
-    private void ApplyMoveList(TrainerEditorPreloadData preload)
-    {
-        if (MoveListLoaded)
-            return;
-
-        movelist = preload.Moves;
-
-        SetComboItems(CB_Move1, movelist);
-        SetComboItems(CB_Move2, movelist);
-        SetComboItems(CB_Move3, movelist);
-        SetComboItems(CB_Move4, movelist);
-        RegisterSearch(CB_Move1);
-        RegisterSearch(CB_Move2);
-        RegisterSearch(CB_Move3);
-        RegisterSearch(CB_Move4);
-        MoveListLoaded = true;
-    }
-
-    private void EnsureStatsInitialized()
-    {
-        if (StatsInitialized)
-            return;
-
-        if (!TryGetCompletedTrainerEditorPreload(out var preload))
-            preload = LoadTrainerEditorPreloadData();
-
-        ApplyStatsTypes(preload);
-    }
-
-    private void ApplyStatsTypes(TrainerEditorPreloadData preload)
-    {
-        if (StatsInitialized)
-            return;
-
-        types = preload.Types;
-        Stats.Initialize(types);
-        StatsInitialized = true;
-    }
-
-    private void EnsureRandomizerSettingsLoaded()
-    {
-        if (RandomizerSettingsLoaded)
-            return;
-
-        PG_Moves.SelectedObject = EditUtil.Settings.Move;
-        PG_RTrainer.SelectedObject = EditUtil.Settings.Trainer;
-        PG_Species.SelectedObject = EditUtil.Settings.Species;
-        RandomizerSettingsLoaded = true;
-    }
-
     private void SetMoneyItemsForLevel(int highestLevel)
     {
         highestLevel = Math.Max(0, highestLevel);
@@ -718,16 +471,10 @@ public partial class BTTE : Form
         SetMoneyItemsForLevel(highestLevel);
     }
 
-    private void UpdateMoneyItemsForTeam(IList<TrainerPoke> team)
-    {
-        var highestLevel = GetHighestTeamLevel(team);
-        SetMoneyItemsForLevel(highestLevel);
-    }
-
     private void UpdateMoneyToolTip()
     {
         var rate = Math.Max(0, CB_Money.SelectedIndex);
-        var highestLevel = CB_Money.Tag is int level ? level : GetHighestTeamLevel(entry);
+        var highestLevel = GetHighestTeamLevel(entry);
         var payout = GetTrainerPayout(highestLevel, rate);
         TrainerToolTip.SetToolTip(
             CB_Money,
@@ -758,11 +505,8 @@ public partial class BTTE : Form
         if ((uint)trainerIndex >= (uint)Trainers.Length)
             return 0;
 
-        return GetHighestTeamLevel(Trainers[trainerIndex].Team);
+        return Trainers[trainerIndex].Team.Select(z => z.Level).DefaultIfEmpty(0).Max();
     }
-
-    private static int GetHighestTeamLevel(IList<TrainerPoke> team) =>
-        team.Count == 0 ? 0 : team.Max(z => z.Level);
 
     private static int GetTrainerPayout(int highestLevel, int rate) => highestLevel * rate * 4;
 
@@ -808,8 +552,7 @@ public partial class BTTE : Form
     private void ClickSet(object sender, EventArgs e)
     {
         int slot = GetSlot(sender);
-        EnsurePokemonEditorListsLoaded();
-        if (CB_Species.SelectedIndex <= 0)
+        if (CB_Species.SelectedIndex == 0)
         { WinFormsUtil.Alert("Can't set empty slot."); return; }
 
         var pk = PreparePKM();
@@ -859,7 +602,7 @@ public partial class BTTE : Form
 
     private void RefreshMoneyDisplayForCurrentTrainer()
     {
-        UpdateMoneyItemsForTeam(Trainers[entry].Team);
+        UpdateMoneyItemsForTrainer(entry);
         UpdateMoneyToolTip();
     }
 
@@ -886,7 +629,7 @@ public partial class BTTE : Form
             return;
         pkm.Form = CB_Form.SelectedIndex;
 
-        if (StatsInitialized && !Stats.UpdatingFields)
+        if (!Stats.UpdatingFields)
             Stats.UpdateStats();
     }
 
@@ -900,7 +643,7 @@ public partial class BTTE : Form
         pkm.Species = (ushort)CB_Species.SelectedIndex;
         RefreshPKMSlotAbility();
 
-        if (StatsInitialized && !Stats.UpdatingFields)
+        if (!Stats.UpdatingFields)
             Stats.UpdateStats();
     }
 
@@ -929,11 +672,41 @@ public partial class BTTE : Form
         SetEntryTitleItems(CB_TrainerID, trName, Trainers.Length);
         SetEntryTitleItems(CB_Trainer_Class, trClass, trClass.Length);
 
+        specieslist[0] = "---";
+        abilitylist[0] = itemlist[0] = movelist[0] = "(None)";
+
+        CB_Species.Items.AddRange(specieslist);
+
+        CB_Move1.Items.AddRange(movelist);
+        CB_Move2.Items.AddRange(movelist);
+        CB_Move3.Items.AddRange(movelist);
+        CB_Move4.Items.AddRange(movelist);
+
+        Stats.Initialize(types);
+        CB_Nature.Items.Clear();
+        CB_Nature.Items.AddRange(natures.Take(25).ToArray());
+        CB_Item.Items.AddRange(itemlist);
+
+        CB_Gender.Items.Add("- / Genderless/Random");
+        CB_Gender.Items.Add("♂ / Male");
+        CB_Gender.Items.Add("♀ / Female");
+
+        CB_Form.Items.Add("");
+
+        CB_Species.SelectedIndex = 0;
+        CB_Item_1.Items.AddRange(itemlist);
+        CB_Item_2.Items.AddRange(itemlist);
+        CB_Item_3.Items.AddRange(itemlist);
+        CB_Item_4.Items.AddRange(itemlist);
+        CB_Gift.Items.AddRange(itemlist);
+
+        SetMoneyItemsForLevel(0);
         CHK_CanMega.CheckedChanged += (s, e) => NUD_MegaForm.Visible = CHK_CanMega.Checked;
         NUD_MegaForm.Visible = false;
 
         CB_TrainerID.SelectedIndex = 0;
         entry = 0;
+        PopulateFields(pkm);
     }
 
     private static void SetEntryTitleItems(ComboBox comboBox, IReadOnlyList<string> names, int count)
@@ -948,20 +721,6 @@ public partial class BTTE : Form
                 var name = (uint)i < (uint)names.Count ? names[i] : string.Empty;
                 items[i] = GetEntryTitle(name, i);
             }
-            comboBox.Items.AddRange(items);
-        }
-        finally
-        {
-            comboBox.EndUpdate();
-        }
-    }
-
-    private static void SetComboItems(ComboBox comboBox, object[] items)
-    {
-        comboBox.BeginUpdate();
-        try
-        {
-            comboBox.Items.Clear();
             comboBox.Items.AddRange(items);
         }
         finally
@@ -997,7 +756,7 @@ public partial class BTTE : Form
         SuspendTrainerLayout();
         try
         {
-            UpdateMoneyItemsForTeam(tr.Team);
+            UpdateMoneyItemsForTrainer(entry);
             PopulateFieldsTrainer(tr.Self);
             PopulateTeam(tr.Team);
             UpdateMoneyToolTip();
@@ -1042,10 +801,6 @@ public partial class BTTE : Form
 
     private void PopulateFields(TrainerPoke pk)
     {
-        EnsurePokemonEditorListsLoaded();
-        EnsureMoveListLoaded();
-        EnsureStatsInitialized();
-
         pkm = pk.Clone();
 
         Stats.UpdatingFields = loadingPKM = true;
@@ -1087,10 +842,6 @@ public partial class BTTE : Form
 
     private TrainerPoke PreparePKM()
     {
-        EnsurePokemonEditorListsLoaded();
-        EnsureMoveListLoaded();
-        EnsureStatsInitialized();
-
         var pk = pkm.Clone();
         pk.Species = CB_Species.SelectedIndex;
         pk.Form = CB_Form.SelectedIndex;
@@ -1136,16 +887,16 @@ public partial class BTTE : Form
         // Load Trainer Data
         CB_Trainer_Class.SelectedIndex = tr.Class;
         LoadTrainerClassBall();
-        SetTrainerItemComboValue(CB_Item_1, tr.Item1);
-        SetTrainerItemComboValue(CB_Item_2, tr.Item2);
-        SetTrainerItemComboValue(CB_Item_3, tr.Item3);
-        SetTrainerItemComboValue(CB_Item_4, tr.Item4);
+        CB_Item_1.SelectedIndex = tr.Item1;
+        CB_Item_2.SelectedIndex = tr.Item2;
+        CB_Item_3.SelectedIndex = tr.Item3;
+        CB_Item_4.SelectedIndex = tr.Item4;
         CB_Money.SelectedIndex = tr.Money;
         CB_Mode.SelectedIndex = (int)tr.Mode;
         LoadAIBits(tr.AI);
         if (tr is TrainerData7b b)
         {
-            SetTrainerItemComboValue(CB_Gift, b.Gift);
+            CB_Gift.SelectedIndex = b.Gift;
             NUD_GiftCount.Value = b.GiftQuantity;
         }
     }
@@ -1184,16 +935,16 @@ public partial class BTTE : Form
     {
         tr.Class = CB_Trainer_Class.SelectedIndex;
         SaveTrainerClassBall(tr.Class);
-        tr.Item1 = GetTrainerItemComboValue(CB_Item_1);
-        tr.Item2 = GetTrainerItemComboValue(CB_Item_2);
-        tr.Item3 = GetTrainerItemComboValue(CB_Item_3);
-        tr.Item4 = GetTrainerItemComboValue(CB_Item_4);
+        tr.Item1 = CB_Item_1.SelectedIndex;
+        tr.Item2 = CB_Item_2.SelectedIndex;
+        tr.Item3 = CB_Item_3.SelectedIndex;
+        tr.Item4 = CB_Item_4.SelectedIndex;
         tr.Money = CB_Money.SelectedIndex;
         tr.Mode = (BattleMode)CB_Mode.SelectedIndex;
         tr.AI = SaveAIBits(tr.AI);
         if (tr is TrainerData7b b)
         {
-            b.Gift = GetTrainerItemComboValue(CB_Gift);
+            b.Gift = CB_Gift.SelectedIndex;
             b.GiftQuantity = (int)NUD_GiftCount.Value;
         }
     }
@@ -1233,9 +984,6 @@ public partial class BTTE : Form
     {
         if (!ConfirmDump())
             return;
-
-        EnsurePokemonEditorListsLoaded();
-        EnsureMoveListLoaded();
 
         using var sfd = new SaveFileDialog { FileName = "Trainers.txt" };
         if (sfd.ShowDialog() != DialogResult.OK)
@@ -1310,7 +1058,6 @@ public partial class BTTE : Form
     {
         if (Stats.UpdatingFields)
             return;
-        EnsureStatsInitialized();
         if (sender == CB_Nature)
             pkm.Nature = WinFormsUtil.GetIndex(CB_Nature);
         else if (sender == NUD_Level)
@@ -1323,8 +1070,6 @@ public partial class BTTE : Form
 
     private void B_HighAttack_Click(object sender, EventArgs e)
     {
-        EnsurePokemonEditorListsLoaded();
-        EnsureMoveListLoaded();
         pkm.Species = CB_Species.SelectedIndex;
         pkm.Level = (int)NUD_Level.Value;
         pkm.Form = CB_Form.SelectedIndex;
@@ -1336,8 +1081,6 @@ public partial class BTTE : Form
 
     private void B_CurrentAttack_Click(object sender, EventArgs e)
     {
-        EnsurePokemonEditorListsLoaded();
-        EnsureMoveListLoaded();
         pkm.Species = CB_Species.SelectedIndex;
         pkm.Level = (int)NUD_Level.Value;
         pkm.Form = CB_Form.SelectedIndex;
@@ -1345,15 +1088,10 @@ public partial class BTTE : Form
         SetMoves(moves);
     }
 
-    private void B_Clear_Click(object sender, EventArgs e)
-    {
-        EnsureMoveListLoaded();
-        SetMoves(new int[4]);
-    }
+    private void B_Clear_Click(object sender, EventArgs e) => SetMoves(new int[4]);
 
     private void SetMoves(IList<int> moves)
     {
-        EnsureMoveListLoaded();
         var mcb = new[] { CB_Move1, CB_Move2, CB_Move3, CB_Move4 };
         for (int i = 0; i < mcb.Length; i++)
             mcb[i].SelectedIndex = moves[i];
@@ -1384,8 +1122,6 @@ public partial class BTTE : Form
 
     private TrainerRandomizer GetRandomizer()
     {
-        EnsureRandomizerSettingsLoaded();
-
         var moves = Data.MoveData.LoadAll();
         var rmove = new MoveRandomizer(Game.Info, moves, Personal);
         int[] banned = Legal.GetBannedMoves(Game.Info.Game, moves.Length);
@@ -1476,13 +1212,6 @@ public partial class BTTE : Form
             "Close");
 
     private readonly record struct TeamSpriteKey(ushort Species, byte Form, byte Gender, int HeldItem, bool Shiny);
-
-    private readonly record struct TrainerEditorPreloadData(
-        string[] Abilities,
-        string[] Species,
-        string[] Natures,
-        string[] Moves,
-        string[] Types);
 }
 
 public static class FormUtil
