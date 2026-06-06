@@ -14,4 +14,5 @@ public class ProgramSettings
     public int Language { get; set; } = 2;
     public string GamePath { get; set; } = string.Empty;
     public bool DisplayAdvanced { get; set; } = false;
+    public bool DisplayRoyalSwordTools { get; set; } = false;
 }

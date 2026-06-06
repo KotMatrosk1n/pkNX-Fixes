@@ -23,6 +23,12 @@ public enum EditorCategory // The order of the enum members defines the order th
     Misc,
 }
 
+public enum EditorToolset
+{
+    Standard,
+    RoyalSword,
+}
+
 public static class EditorCategoryExt
 {
     public static IconChar GetIcon(this EditorCategory category) => category switch
@@ -54,15 +60,20 @@ public static class EditorCategoryExt
 /// <param name="icon">The icon to display for this editor. Add this to display an icon next to the name</param>
 /// <param name="advanced">True is the editor should only be displayed when the user turned on advanced view</param>
 /// <param name="editorName">The name that should be displayed on the editor button. Leave empty for automatic conversion from the method name.</param>
+/// <param name="toolset">The toolset this editor belongs to.</param>
+/// <param name="description">Optional tooltip text shown on the editor button.</param>
 [AttributeUsage(AttributeTargets.Method)]
-public class EditorCallableAttribute(EditorCategory category = EditorCategory.Misc, IconChar icon = IconChar.None, bool advanced = false, string editorName = "") : Attribute
+public class EditorCallableAttribute(EditorCategory category = EditorCategory.Misc, IconChar icon = IconChar.None, bool advanced = false, string editorName = "", EditorToolset toolset = EditorToolset.Standard, string description = "") : Attribute
 {
     public EditorCategory Category { get; } = category;
     public IconChar Icon { get; } = icon;
     public bool IsAdvanced { get; } = advanced;
     public string EditorName { get; } = editorName;
+    public EditorToolset Toolset { get; } = toolset;
+    public string Description { get; } = description;
 
     public bool HasCustomEditorName() => !string.IsNullOrWhiteSpace(EditorName);
+    public bool HasDescription() => !string.IsNullOrWhiteSpace(Description);
 
     public bool HasCategory() => Category != EditorCategory.None;
     public bool HasIcon() => Icon != IconChar.None;

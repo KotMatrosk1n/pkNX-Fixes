@@ -39,21 +39,17 @@ public abstract class EditorBase
         UIStaticSources.SetupForGame(ROM);
     }
 
-    public int CountControlsForCategory(EditorCategory category) => editorAttributes.Count(a => a.Category == category);
+    public int CountControlsForCategory(EditorCategory category, bool displayAdvanced = false, EditorToolset toolset = EditorToolset.Standard) =>
+        editorAttributes.Count(a => ShouldDisplay(a, category, displayAdvanced, toolset));
 
-    public IEnumerable<EditorButtonData> GetControls(EditorCategory category = EditorCategory.None, bool displayAdvanced = false)
+    public IEnumerable<EditorButtonData> GetControls(EditorCategory category = EditorCategory.None, bool displayAdvanced = false, EditorToolset toolset = EditorToolset.Standard)
     {
         for (int i = 0; i < editorMethods.Length; ++i)
         {
             var m = editorMethods[i];
             var callable = editorAttributes[i];
 
-            // Ignore all editors that are not of the requested category
-            if (callable.Category != category)
-                continue;
-
-            // Ignore all advanced editors when the user doesn't have this view enabled
-            if (callable.IsAdvanced && !displayAdvanced)
+            if (!ShouldDisplay(callable, category, displayAdvanced, toolset))
                 continue;
 
             var name = m.Name.Replace(prefix, ""); // Might or might not contain prefix
@@ -61,6 +57,7 @@ public abstract class EditorBase
             {
                 Title = callable.HasCustomEditorName() ? callable.EditorName : WinFormsUtil.GetSpacedCapitalized(name),
                 Icon = callable.HasIcon() ? callable.Icon : null,
+                ToolTip = callable.HasDescription() ? callable.Description : null,
                 OnClick = (_, _) =>
                 {
                     try
@@ -79,6 +76,17 @@ public abstract class EditorBase
 
             yield return b;
         }
+    }
+
+    private static bool ShouldDisplay(EditorCallableAttribute callable, EditorCategory category, bool displayAdvanced, EditorToolset toolset)
+    {
+        if (callable.Toolset != toolset)
+            return false;
+
+        if (callable.Category != category)
+            return false;
+
+        return !callable.IsAdvanced || displayAdvanced;
     }
 
     public void Close()

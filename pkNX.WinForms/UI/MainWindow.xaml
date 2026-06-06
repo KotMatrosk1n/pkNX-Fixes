@@ -69,6 +69,7 @@
                     </MenuItem>
                     <MenuItem x:Name="Menu_Current" Header="Open Game Folder" Click="Menu_Current_Click"/>
                     <MenuItem x:Name="Menu_DisplayAdvanced" Header="Display Advanced Editors" Click="Menu_DisplayAdvanced_Click"/>
+                    <MenuItem x:Name="Menu_RoyalSwordTools" Header="Royal Sword Tools" Click="Menu_RoyalSwordTools_Click"/>
                 </MenuItem>
             </Menu>
 
@@ -87,6 +88,7 @@
                         <Button Width="{Binding Source={x:Static local:EditorButtonData.Width}}" 
                                 Height="{Binding Source={x:Static local:EditorButtonData.Height}}" 
                                 Margin="{Binding Source={x:Static local:EditorButtonData.Margin}}"
+                                ToolTip="{Binding ToolTip}"
                                 Click="Button_Click">
                             <Grid>
                                 <Grid.ColumnDefinitions>
