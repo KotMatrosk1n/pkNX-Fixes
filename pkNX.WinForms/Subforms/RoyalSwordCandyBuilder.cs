@@ -817,7 +817,7 @@ internal static class RoyalCandyLayeredFsBuilder
         new(60, 0xA52A7561C28A76F1, "Piers gym clear (FE_GC_AKU_CLEAR)"),
         new(55, SceneMainMasterWorkHash, "Marnie 138 Route 9/Spikemuth clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1330),
         new(54, SceneMainMasterWorkHash, "Hop 202/203/204 Hero's Bath clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1300),
-        new(52, 0x7042D310DF3DB17F, "Gordie gym clear, Sword (FE_GC_IWAKO_CLEAR)"),
+        new(52, 0x7042D310DF3DB17F, "Gordie 135 / Melony 136 gym clear (FE_GC_IWAKO_CLEAR shared Gym 6 flag)"),
         new(50, SceneMainMasterWorkHash, "Hop 127/128/129 Route 7 clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1200),
         new(47, 0xDF7AC7105B946783, "Opal gym clear (FE_GC_FAIRY_CLEAR)"),
         new(44, SceneMainMasterWorkHash, "Bede 133 Stow-on-Side mural clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1090),

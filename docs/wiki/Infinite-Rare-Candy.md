@@ -470,7 +470,7 @@ Current milestone examples:
 | 44 | work threshold | Bede 133 Stow-on-Side mural clear |
 | 47 | flag | Opal gym clear |
 | 50 | work threshold | Hop 127/128/129 Route 7 clear |
-| 52 | flag | Gordie gym clear, Sword |
+| 52 | flag | Gordie 135 / Melony 136 gym clear, shared Gym 6 flag `FE_GC_IWAKO_CLEAR` |
 | 54 | work threshold | Hop 202/203/204 Hero's Bath clear |
 | 55 | work threshold | Marnie 138 Route 9/Spikemuth clear |
 | 60 | flag | Piers gym clear |
