@@ -20,6 +20,10 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private const int DefaultRoyalCandyItemId = 1128;
     private const int DefaultTemplateItemId = 50;
     private const int DefaultVirtualCount = 999;
+    private const int CandyDescriptionMaxCharacters = 120;
+    private const int CandyDescriptionWrapColumn = 48;
+    private const int CandyDescriptionMaxLines = 3;
+    private const string DefaultCandyDescriptionText = "Raises a Pokemon's level up to the current allowed cap";
 
     private readonly string RomFsPath;
     private readonly string ExeFsPath;
@@ -32,9 +36,13 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private readonly CheckBox InfiniteUseCheck = new();
     private readonly CheckBox StoryLadderCheck = new();
     private readonly CheckBox VirtualCountCheck = new();
+    private readonly CheckBox BagGrantCheck = new();
     private readonly CheckBox MaxCapCheck = new();
     private readonly NumericUpDown VirtualCountBox = new();
     private readonly NumericUpDown MaxCapBox = new();
+    private readonly TextBox DescriptionBox = new();
+    private readonly TextBox DescriptionPreviewBox = new();
+    private readonly Label DescriptionCountLabel = new();
     private readonly CheckBox OverwriteCheck = new();
     private readonly Button ValidateButton = new();
     private readonly Button BuildButton = new();
@@ -80,10 +88,11 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             ColumnCount = 1,
             Dock = DockStyle.Fill,
             Padding = new Padding(10),
-            RowCount = 4,
+            RowCount = 5,
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 174));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
 
@@ -91,7 +100,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         {
             ColumnCount = 8,
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 4,
         };
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
@@ -101,6 +110,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+        settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -117,12 +127,14 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         ConfigureCheck(InfiniteUseCheck, "Infinite Use", true, "Keep Royal Candy from decrementing after use.");
         ConfigureCheck(StoryLadderCheck, "Story Ladder", true, "Use the Royal Sword story cap ladder instead of a fixed cap.");
         ConfigureCheck(VirtualCountCheck, "Virtual Count", true, "Report a virtual inventory count for Royal Candy in the bag UI.");
+        ConfigureCheck(BagGrantCheck, "Bag Grant", true, "Patch the Bag pickup event so a new game receives Royal Candy.");
         ConfigureCheck(MaxCapCheck, "Max Cap", false, "Generate a diagnostic output capped at this milestone.");
         MaxCapCheck.CheckedChanged += (_, _) => MaxCapBox.Enabled = MaxCapCheck.Checked;
 
         OutputPathBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
         OutputPathBox.Margin = new Padding(0, 4, 8, 4);
         ConfigureActionButton(BrowseOutputButton, "Browse", "Choose the LayeredFS output folder.", BrowseOutput);
+        ConfigureDescriptionEditor();
 
         settings.Controls.Add(CreateLabel("Item ID"), 0, 0);
         settings.Controls.Add(ItemIdBox, 1, 0);
@@ -147,9 +159,11 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         settings.Controls.Add(VirtualCountBox, 2, 2);
         settings.Controls.Add(MaxCapCheck, 3, 2);
         settings.Controls.Add(MaxCapBox, 4, 2);
-        var outputNote = CreateLabel("RomFS and ExeFS are written into the selected LayeredFS output folder.");
-        settings.Controls.Add(outputNote, 5, 2);
-        settings.SetColumnSpan(outputNote, 3);
+        settings.Controls.Add(BagGrantCheck, 5, 2);
+        settings.SetColumnSpan(BagGrantCheck, 3);
+        var outputNote = CreateLabel("RomFS, scripts, and ExeFS are written into the selected LayeredFS output folder.");
+        settings.Controls.Add(outputNote, 0, 3);
+        settings.SetColumnSpan(outputNote, 8);
 
         var actions = new FlowLayoutPanel
         {
@@ -186,9 +200,10 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         LogText.WordWrap = false;
 
         root.Controls.Add(settings, 0, 0);
-        root.Controls.Add(actions, 0, 1);
-        root.Controls.Add(ResultGrid, 0, 2);
-        root.Controls.Add(LogText, 0, 3);
+        root.Controls.Add(CreateDescriptionPanel(), 0, 1);
+        root.Controls.Add(actions, 0, 2);
+        root.Controls.Add(ResultGrid, 0, 3);
+        root.Controls.Add(LogText, 0, 4);
         Controls.Add(root);
     }
 
@@ -212,7 +227,10 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private void LoadDefaults()
     {
         OutputPathBox.Text = GetDefaultOutputPath();
+        DescriptionBox.Text = DefaultCandyDescriptionText;
         VirtualCountCheck.CheckedChanged += (_, _) => VirtualCountBox.Enabled = VirtualCountCheck.Checked;
+        DescriptionBox.TextChanged += (_, _) => UpdateDescriptionPreview();
+        UpdateDescriptionPreview();
         SetResults([
             new("Info", "Project", string.Empty, $"RomFS: {RomFsPath}"),
             new("Info", "Project", string.Empty, $"ExeFS: {ExeFsPath}"),
@@ -223,7 +241,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private string GetDefaultOutputPath()
     {
         var root = Directory.GetParent(RomFsPath)?.FullName ?? RomFsPath;
-        return Path.Combine(root, "royal-candy-1128-royal-sword-full-ladder");
+        return Path.Combine(root, "royal-candy-1128-bag-event-grant");
     }
 
     private void BrowseOutput()
@@ -282,6 +300,8 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         if (!validateOnly && Directory.Exists(output) && !OverwriteCheck.Checked)
             throw new InvalidOperationException("The output folder already exists and overwrite is disabled.");
 
+        var itemDescription = CompileCandyDescription(DescriptionBox.Text);
+
         return new(
             RomFsPath,
             ExeFsPath,
@@ -293,7 +313,9 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             StoryLadderCheck.Checked,
             InfiniteUseCheck.Checked,
             VirtualCountCheck.Checked ? (int)VirtualCountBox.Value : null,
-            MaxCapCheck.Checked ? (int)MaxCapBox.Value : null);
+            MaxCapCheck.Checked ? (int)MaxCapBox.Value : null,
+            BagGrantCheck.Checked,
+            itemDescription);
     }
 
     private void OpenOutput()
@@ -368,6 +390,54 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         ButtonToolTips.SetToolTip(button, tooltip);
     }
 
+    private void ConfigureDescriptionEditor()
+    {
+        DescriptionBox.Multiline = true;
+        DescriptionBox.ScrollBars = ScrollBars.Vertical;
+        DescriptionBox.MaxLength = CandyDescriptionMaxCharacters + 16;
+        DescriptionBox.Margin = new Padding(0, 4, 8, 4);
+        DescriptionBox.Dock = DockStyle.Fill;
+        ButtonToolTips.SetToolTip(DescriptionBox, "Type normal text. The builder wraps lines and converts them to Sword/Shield item text syntax.");
+
+        DescriptionPreviewBox.Multiline = true;
+        DescriptionPreviewBox.ReadOnly = true;
+        DescriptionPreviewBox.ScrollBars = ScrollBars.Vertical;
+        DescriptionPreviewBox.Margin = new Padding(0, 4, 0, 4);
+        DescriptionPreviewBox.Dock = DockStyle.Fill;
+        ButtonToolTips.SetToolTip(DescriptionPreviewBox, "Preview of the line breaks that will be written into iteminfo.dat.");
+
+        DescriptionCountLabel.AutoSize = false;
+        DescriptionCountLabel.TextAlign = ContentAlignment.MiddleLeft;
+        DescriptionCountLabel.Dock = DockStyle.Fill;
+    }
+
+    private TableLayoutPanel CreateDescriptionPanel()
+    {
+        var panel = new TableLayoutPanel
+        {
+            ColumnCount = 5,
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        panel.Controls.Add(CreateLabel("Description"), 0, 0);
+        panel.Controls.Add(DescriptionCountLabel, 1, 0);
+        panel.SetColumnSpan(DescriptionCountLabel, 4);
+        panel.Controls.Add(DescriptionBox, 1, 1);
+        panel.Controls.Add(CreateLabel("Preview"), 2, 1);
+        panel.Controls.Add(DescriptionPreviewBox, 3, 1);
+        panel.SetColumnSpan(DescriptionPreviewBox, 2);
+
+        return panel;
+    }
+
     private static void ConfigureGrid(DataGridView grid)
     {
         grid.AllowUserToAddRows = false;
@@ -390,6 +460,90 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         Text = text,
         TextAlign = ContentAlignment.MiddleLeft,
     };
+
+    private void UpdateDescriptionPreview()
+    {
+        try
+        {
+            var compiled = CompileCandyDescription(DescriptionBox.Text);
+            DescriptionPreviewBox.ForeColor = SystemColors.WindowText;
+            DescriptionPreviewBox.Text = compiled.Replace("\\n", Environment.NewLine, StringComparison.Ordinal);
+            DescriptionCountLabel.ForeColor = SystemColors.ControlText;
+            DescriptionCountLabel.Text = $"{CountDescriptionCharacters(DescriptionBox.Text)}/{CandyDescriptionMaxCharacters} characters";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            DescriptionPreviewBox.ForeColor = Color.Firebrick;
+            DescriptionPreviewBox.Text = ex.Message;
+            DescriptionCountLabel.ForeColor = Color.Firebrick;
+            DescriptionCountLabel.Text = $"{CountDescriptionCharacters(DescriptionBox.Text)}/{CandyDescriptionMaxCharacters} characters";
+        }
+    }
+
+    private static string CompileCandyDescription(string text)
+    {
+        var paragraphs = GetDescriptionParagraphs(text).ToArray();
+        if (paragraphs.Length == 0)
+            throw new InvalidOperationException("Description cannot be empty.");
+
+        var plainLength = CountDescriptionCharacters(text);
+        if (plainLength > CandyDescriptionMaxCharacters)
+            throw new InvalidOperationException($"Description is {plainLength} characters; maximum is {CandyDescriptionMaxCharacters}.");
+
+        var lines = new List<string>();
+        foreach (var paragraph in paragraphs)
+            lines.AddRange(WrapDescriptionParagraph(paragraph));
+
+        if (lines.Count > CandyDescriptionMaxLines)
+            throw new InvalidOperationException($"Description wraps to {lines.Count} lines; maximum is {CandyDescriptionMaxLines}.");
+
+        return string.Join("\\n", lines);
+    }
+
+    private static int CountDescriptionCharacters(string text) =>
+        string.Join(" ", GetDescriptionParagraphs(text)).Length;
+
+    private static IEnumerable<string> GetDescriptionParagraphs(string text)
+    {
+        var normalized = text
+            .Replace("\\r\\n", "\n", StringComparison.Ordinal)
+            .Replace("\\n", "\n", StringComparison.Ordinal)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+
+        foreach (var paragraph in normalized.Split('\n'))
+        {
+            var cleaned = string.Join(" ", paragraph.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (cleaned.Length != 0)
+                yield return cleaned;
+        }
+    }
+
+    private static IEnumerable<string> WrapDescriptionParagraph(string paragraph)
+    {
+        var words = paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var line = string.Empty;
+        foreach (var word in words)
+        {
+            if (line.Length == 0)
+            {
+                line = word;
+                continue;
+            }
+
+            if (line.Length + 1 + word.Length <= CandyDescriptionWrapColumn)
+            {
+                line += " " + word;
+                continue;
+            }
+
+            yield return line;
+            line = word;
+        }
+
+        if (line.Length != 0)
+            yield return line;
+    }
 
     private static DataGridViewTextBoxColumn CreateTextColumn(string header, int width) => new()
     {
@@ -417,14 +571,13 @@ internal static class RoyalCandyLayeredFsBuilder
     private const ulong EarlyPokeMartHash = 0x1F3FF031A3A24490;
     private const ulong BadgePokeMartInventoryHash = 0x66CA73B2966BB871;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
-    private const ulong FirstHopFlagHash = 0x005A329212277F11;
+    private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
     private const string ItemPath = "bin/pml/item/item.dat";
     private const string ShopPath = "bin/appli/shop/bin/shop_data.bin";
     private const string MessageRoot = "bin/message";
     private const string ItemInfoFile = "iteminfo.dat";
     private const string RoyalCandyName = "Royal Candy";
     private const string RoyalCandyPluralName = "Royal Candies";
-    private const string RoyalCandyDescription = "Raises one Pokemon's level up to the\ncurrent Royal Candy cap.";
 
     public static RoyalCandyBuildSummary Build(RoyalCandyBuildOptions options)
     {
@@ -437,7 +590,9 @@ internal static class RoyalCandyLayeredFsBuilder
             $"Item id: {options.ItemId}",
             $"Template item id: {options.TemplateItemId}",
             $"Output: {options.OutputPath}",
+            $"Description: {options.ItemDescription}",
             $"Max story cap: {(options.MaxStoryCap is { } cap ? cap.ToString(CultureInfo.InvariantCulture) : "full ladder")}",
+            $"Bag pickup grant: {(options.GrantOnBagEvent ? "enabled" : "disabled")}",
             "",
         };
 
@@ -449,6 +604,9 @@ internal static class RoyalCandyLayeredFsBuilder
             PatchItemText(options, results, notes);
             PatchShopData(options, results, notes);
         }
+
+        if (options.GrantOnBagEvent)
+            PatchBagEventScript(options, results, notes);
 
         if (options.BuildExeFs)
             PatchExeFsMain(options, results, notes);
@@ -538,7 +696,7 @@ internal static class RoyalCandyLayeredFsBuilder
                     patchedFiles++;
             }
 
-            if (PatchOneTextFile(commonDirectory, options, ItemInfoFile, options.ItemId, RoyalCandyDescription))
+            if (PatchOneTextFile(commonDirectory, options, ItemInfoFile, options.ItemId, options.ItemDescription))
                 patchedFiles++;
         }
 
@@ -646,6 +804,17 @@ internal static class RoyalCandyLayeredFsBuilder
         return true;
     }
 
+    private static void PatchBagEventScript(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        if (options.ItemId != RoyalCandyItemId)
+            throw new InvalidOperationException("The Royal Candy Bag-event grant currently targets item id 1128 only.");
+
+        var patchNotes = RoyalSwordScriptAmxPatcher.PatchBagEventRoyalCandyGrant(options.RomFsPath, options.OutputPath, options.ItemId);
+
+        results.Add(new("Pass", "RomFS", "romfs/bin/script/amx/main_event_0020.amx", "Bag pickup script grant generated."));
+        notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
+    }
+
     private static void PatchExeFsMain(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         if (options.ItemId != RoyalCandyItemId)
@@ -673,9 +842,12 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.InfiniteUse)
             PatchInfiniteCandidateItemUse(nso.DecompressedText, options.ItemId, patchNotes);
         if (options.StoryCapLadder)
-            PatchStoryCapLadder(nso.DecompressedText, options.ItemId, FirstHopFlagHash, options.MaxStoryCap, patchNotes);
+            PatchStoryCapLadder(nso.DecompressedText, options.ItemId, HopEndorsementFlagHash, options.MaxStoryCap, patchNotes);
         if (options.VirtualCount is { } virtualCount)
+        {
+            PatchCandidateVirtualInventoryOwnership(nso.DecompressedText, options.ItemId, patchNotes);
             PatchCandidateVirtualInventoryCount(nso.DecompressedText, options.ItemId, virtualCount, patchNotes);
+        }
         PatchRoyalCandyUiRoute(nso.DecompressedText, options.ItemId, patchNotes);
 
         WriteOutputBytes(options.OutputPath, "exefs/main", nso.Write());
@@ -793,7 +965,7 @@ internal static class RoyalCandyLayeredFsBuilder
         new(60, 0xA52A7561C28A76F1, "Piers gym clear (FE_GC_AKU_CLEAR)"),
         new(55, SceneMainMasterWorkHash, "Marnie 138 Route 9/Spikemuth clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1330),
         new(54, SceneMainMasterWorkHash, "Hop 202/203/204 Hero's Bath clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1300),
-        new(52, 0x7042D310DF3DB17F, "Gordie gym clear, Sword (FE_GC_IWAKO_CLEAR)"),
+        new(52, 0x7042D310DF3DB17F, "Gordie 135 / Melony 136 gym clear (FE_GC_IWAKO_CLEAR shared Gym 6 flag)"),
         new(50, SceneMainMasterWorkHash, "Hop 127/128/129 Route 7 clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1200),
         new(47, 0xDF7AC7105B946783, "Opal gym clear (FE_GC_FAIRY_CLEAR)"),
         new(44, SceneMainMasterWorkHash, "Bede 133 Stow-on-Side mural clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 1090),
@@ -806,8 +978,8 @@ internal static class RoyalCandyLayeredFsBuilder
         new(28, SceneMainMasterWorkHash, "Hop 121/122/123 Hulbury clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 640),
         new(25, 0xB02911749203329A, "Milo gym clear (FE_GC_KUSA_CLEAR)"),
         new(23, SceneMainMasterWorkHash, "Bede 195 Galar Mine clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 550),
-        new(20, 0x005A329212277F11, "second Hop win candidate (FE_EV0280_WIN)"),
-        new(16, firstHopFlagHash, "first Hop win, confirmed for Hop 007/008/009 (FE_EV0110_WIN by default)"),
+        new(20, SceneMainMasterWorkHash, "Hop 191/192/193 Motostoke post-battle progress", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 530),
+        new(16, firstHopFlagHash, "Hop 007/008/009 endorsement battle clear (FE_EV0280_WIN by default)"),
     ];
 
     private static int WriteStoryCapHelper(byte[] text, RoyalSwordLevelCapMilestone[] milestones)
@@ -1006,6 +1178,30 @@ internal static class RoyalCandyLayeredFsBuilder
         WriteInstruction(text, clampSelectOffset, EncodeBranch(clampSelectOffset, firstCaveOffset));
 
         notes.Add($"- text+0x{clampSelectOffset:X}: Royal Candy bypasses the vanilla min(inventory count, useful count) clamp.");
+    }
+
+    private static void PatchCandidateVirtualInventoryOwnership(byte[] text, int candidateId, List<string> notes)
+    {
+        const int itemOwnershipFunctionOffset = 0x01420EF0;
+        const int resumeOffset = itemOwnershipFunctionOffset + 4;
+        const uint expectedFirstInstruction = 0xF81D0FF5;
+
+        ExpectInstruction(text, itemOwnershipFunctionOffset, expectedFirstInstruction, "item-ownership helper first instruction");
+
+        var dispatchCaveOffset = AllocateCodeCave(text, 0xC, "Royal Candy virtual ownership dispatch");
+        var returnCaveOffset = AllocateCodeCave(text, 0x8, "Royal Candy virtual ownership return");
+        var vanillaCaveOffset = FindCodeCaveOrThrow(text, 0x8, "Royal Candy virtual ownership vanilla path");
+
+        WriteInstruction(text, itemOwnershipFunctionOffset, EncodeBranch(itemOwnershipFunctionOffset, dispatchCaveOffset));
+        WriteInstruction(text, dispatchCaveOffset, EncodeCmpImmediate(1, candidateId));
+        WriteInstruction(text, dispatchCaveOffset + 4, EncodeConditionalBranch(dispatchCaveOffset + 4, returnCaveOffset, Arm64Condition.EQ));
+        WriteInstruction(text, dispatchCaveOffset + 8, EncodeBranch(dispatchCaveOffset + 8, vanillaCaveOffset));
+        WriteInstruction(text, returnCaveOffset, EncodeMovzImmediate32(0, 1));
+        WriteInstruction(text, returnCaveOffset + 4, EncodeRet());
+        WriteInstruction(text, vanillaCaveOffset, expectedFirstInstruction);
+        WriteInstruction(text, vanillaCaveOffset + 4, EncodeBranch(vanillaCaveOffset + 4, resumeOffset));
+
+        notes.Add($"- text+0x{itemOwnershipFunctionOffset:X}: item-ownership helper reports Royal Candy as owned.");
     }
 
     private static void PatchCandidateVirtualInventoryCount(byte[] text, int candidateId, int virtualCount, List<string> notes)
@@ -1314,6 +1510,7 @@ internal static class RoyalCandyLayeredFsBuilder
             "",
             $"Selected item id: `{options.ItemId}`",
             $"Template item id: `{options.TemplateItemId}`",
+            $"Description: `{options.ItemDescription}`",
             $"Story cap mode: `{(options.StoryCapLadder ? "Royal Sword ladder" : "disabled")}`",
             $"Max story cap: `{(options.MaxStoryCap is { } cap ? cap.ToString(CultureInfo.InvariantCulture) : "full ladder")}`",
             "",
@@ -1321,6 +1518,7 @@ internal static class RoyalCandyLayeredFsBuilder
             options.BuildRomFs ? "- `romfs/bin/pml/item/item.dat`: Royal Candy item metadata." : "- RomFS item output disabled.",
             options.BuildRomFs ? "- `romfs/bin/message/*/common/itemname*.dat` and `iteminfo.dat`: Royal Candy text." : "- RomFS text output disabled.",
             options.BuildRomFs ? "- `romfs/bin/appli/shop/bin/shop_data.bin`: Poke Mart test acquisition entries." : "- RomFS shop output disabled.",
+            options.GrantOnBagEvent ? "- `romfs/bin/script/amx/main_event_0020.amx`: Bag pickup event grants Royal Candy in a fresh new game." : "- Bag pickup script grant disabled.",
             options.BuildExeFs ? "- `exefs/main`: Royal Candy route, non-consumption, virtual count, and cap helper patch." : "- ExeFS output disabled.",
             "",
             "Build log:",
@@ -1372,7 +1570,9 @@ internal sealed record RoyalCandyBuildOptions(
     bool StoryCapLadder,
     bool InfiniteUse,
     int? VirtualCount,
-    int? MaxStoryCap);
+    int? MaxStoryCap,
+    bool GrantOnBagEvent,
+    string ItemDescription);
 
 internal sealed record RoyalCandyBuildSummary(IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
 internal sealed record BuildResult(string Status, string Area, string Output, string Message);

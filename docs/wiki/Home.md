@@ -9,7 +9,7 @@ The big theme is that pkNX already knows how to open a lot of Sword/Shield data,
 ## Start Here
 
 - [Development History](Development-History.md) explains the earlier pkNX editor work, why I moved away from raw `PropertyGrid` editing, and how the first large editor improvements were built.
-- [Infinite Rare Candy](Infinite-Rare-Candy.md) documents the full key-item infinite Rare Candy research project: dead ends, file formats, script research, ExeFS patching, tools created, breakthroughs, and what this makes possible.
+- [Infinite Rare Candy](Infinite-Rare-Candy.md) documents the full key-item infinite Rare Candy research project: dead ends, file formats, script research, ExeFS patching, AMX Bag-event acquisition, tools created, breakthroughs, and what this makes possible.
 - [Repository](https://github.com/KotMatrosk1n/pkNX-Fixes)
 
 ## What This Fork Is For
@@ -31,7 +31,7 @@ The current public work covers the Matroskin pkNX fork through the Royal editor 
 
 - PR #1 through PR #16 built the first major quality-of-life editors and generic editor infrastructure.
 - PR #17 through PR #19 continued SWSH label and placement readability work.
-- PR #20 through PR #28 built the Royal-only editor mode and the Infinite Rare Candy investigation/editor toolchain.
+- PR #20 through PR #29 built the Royal-only editor mode and the Infinite Rare Candy investigation/editor documentation line.
 
 The Royal-only dashboard now includes real editor entries for:
 

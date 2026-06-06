@@ -12,7 +12,7 @@ public sealed class RoyalSwordSaveInspector : Form
 {
     private const int DefaultBaseCap = 10;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
-    private const ulong FirstHopWinFlagHash = 0xA9C039F0598B8A31;
+    private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
 
     private static readonly RoyalSaveMilestone[] Milestones =
     [
@@ -25,7 +25,7 @@ public sealed class RoyalSwordSaveInspector : Form
         new(60, 0xA52A7561C28A76F1, "Piers gym clear (FE_GC_AKU_CLEAR)"),
         new(55, SceneMainMasterWorkHash, "Marnie 138 Route 9/Spikemuth clear", RoyalSaveMilestoneKind.WorkAtLeast, 1330),
         new(54, SceneMainMasterWorkHash, "Hop 202/203/204 Hero's Bath clear", RoyalSaveMilestoneKind.WorkAtLeast, 1300),
-        new(52, 0x7042D310DF3DB17F, "Gordie gym clear, Sword (FE_GC_IWAKO_CLEAR)"),
+        new(52, 0x7042D310DF3DB17F, "Gordie 135 / Melony 136 gym clear (FE_GC_IWAKO_CLEAR shared Gym 6 flag)"),
         new(50, SceneMainMasterWorkHash, "Hop 127/128/129 Route 7 clear", RoyalSaveMilestoneKind.WorkAtLeast, 1200),
         new(47, 0xDF7AC7105B946783, "Opal gym clear (FE_GC_FAIRY_CLEAR)"),
         new(44, SceneMainMasterWorkHash, "Bede 133 Stow-on-Side mural clear", RoyalSaveMilestoneKind.WorkAtLeast, 1090),
@@ -38,8 +38,8 @@ public sealed class RoyalSwordSaveInspector : Form
         new(28, SceneMainMasterWorkHash, "Hop 121/122/123 Hulbury clear", RoyalSaveMilestoneKind.WorkAtLeast, 640),
         new(25, 0xB02911749203329A, "Milo gym clear (FE_GC_KUSA_CLEAR)"),
         new(23, SceneMainMasterWorkHash, "Bede 195 Galar Mine clear", RoyalSaveMilestoneKind.WorkAtLeast, 550),
-        new(20, 0x005A329212277F11, "second Hop win candidate (FE_EV0280_WIN)"),
-        new(16, FirstHopWinFlagHash, "first Hop win, confirmed for Hop 007/008/009 (FE_EV0110_WIN by default)"),
+        new(20, SceneMainMasterWorkHash, "Hop 191/192/193 Motostoke post-battle progress", RoyalSaveMilestoneKind.WorkAtLeast, 530),
+        new(16, HopEndorsementFlagHash, "Hop 007/008/009 endorsement battle clear (FE_EV0280_WIN)"),
     ];
 
     private readonly TextBox SavePathBox = new();
