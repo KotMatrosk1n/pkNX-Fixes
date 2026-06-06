@@ -85,8 +85,7 @@ public partial class MainWindow
         SpriteBuilderUtil.SpriterPreference = SpriteBuilderPreference.ForceSprites;
 
         CB_Lang.SelectedIndex = Settings.Language;
-        Menu_DisplayAdvanced.IsChecked = Settings.DisplayAdvanced;
-        Menu_RoyalSwordTools.IsChecked = Settings.DisplayRoyalSwordTools;
+        Menu_DisplayRoyalEditors.IsChecked = Settings.DisplayRoyalSwordTools;
 
         if (!string.IsNullOrWhiteSpace(Settings.GamePath) && Directory.Exists(Settings.GamePath))
             OpenPath(Settings.GamePath);
@@ -390,23 +389,14 @@ public partial class MainWindow
         data.OnClick.Invoke(sender, e);
     }
 
-    private async void Menu_DisplayAdvanced_Click(object sender, RoutedEventArgs e)
+    private async void Menu_DisplayRoyalEditors_Click(object sender, RoutedEventArgs e)
     {
-        Menu_DisplayAdvanced.IsChecked = !Menu_DisplayAdvanced.IsChecked;
-        Settings.DisplayAdvanced = Menu_DisplayAdvanced.IsChecked;
+        Menu_DisplayRoyalEditors.IsChecked = !Menu_DisplayRoyalEditors.IsChecked;
+        Settings.DisplayRoyalSwordTools = Menu_DisplayRoyalEditors.IsChecked;
         await ProgramSettings.SaveSettings(Settings);
 
-        // Force reload of editor buttons
-        LoadEditorButtons();
-    }
-
-    private async void Menu_RoyalSwordTools_Click(object sender, RoutedEventArgs e)
-    {
-        Menu_RoyalSwordTools.IsChecked = !Menu_RoyalSwordTools.IsChecked;
-        Settings.DisplayRoyalSwordTools = Menu_RoyalSwordTools.IsChecked;
-        await ProgramSettings.SaveSettings(Settings);
-
-        LoadEditorButtons();
+        if (Editor is not null)
+            LoadEditorButtons();
     }
 
     private static string GetEditorButtonSortKey(EditorButtonData button)
