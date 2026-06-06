@@ -80,9 +80,11 @@ internal class EditorSWSH : EditorBase
     }
 
     [EditorCallable(EditorCategory.None, editorName: "Save Inspector", toolset: EditorToolset.RoyalSword, description: "Royal Sword Save Inspector: evaluate save progress and Royal Sword milestone state.")]
-    public void RoyalSwordSaveInspector() => ShowRoyalSwordToolPlaceholder(
-        "Royal Sword Save Inspector",
-        "Planned save reader for SWSH save metadata, flag/work state, scene progress, and Royal Candy cap-ladder results.");
+    public void RoyalSwordSaveInspector()
+    {
+        using var form = new RoyalSwordSaveInspector();
+        form.ShowDialog();
+    }
 
     [EditorCallable(EditorCategory.None, editorName: "Patch Manager", toolset: EditorToolset.RoyalSword, description: "Royal Sword Patch Manager: validate ExeFS patch signatures, offsets, and code-cave usage.")]
     public void RoyalSwordPatchManager() => ShowRoyalSwordToolPlaceholder(
