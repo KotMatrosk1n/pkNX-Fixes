@@ -96,3 +96,8 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - new builds write a single `RoyalSword_RoyalCandy.txt` marker at the selected LayeredFS output root;
   - technical patch details stay in the Royal Candy editor log instead of being written as separate note files;
   - uninstall cleans the old generated note/readme files from earlier builder versions, and removes the new marker only when it matches the Royal Sword header.
+- Fixed Royal Candy uninstall cleanup for generated RomFS files:
+  - item generation no longer mutates the original shared item raw row before appending the Royal Candy row;
+  - uninstall restores item `1128` raw-row bytes exactly before trimming/removing overlays;
+  - text, raid reward, and placement overlays are removed when they match Royal Candy-generated or restored Royal Candy cleanup states, even when container serialization bytes differ from the original dump;
+  - uninstall can now clean orphaned Royal Candy RomFS leftovers after `exefs/main` has already been removed.

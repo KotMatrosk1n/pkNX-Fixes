@@ -693,6 +693,8 @@ ExeFS gets a dedicated preflight before writing. If an existing `exefs/main` ove
 
 If the existing executable is not already Royal Candy, the builder dry-runs the Royal Candy patch anchors against that overlay. Compatible executable edits can be layered. Conflicting executable edits are reported before the warning/confirm step.
 
+Uninstall uses the same file-scan approach. It removes known Royal Candy ExeFS output, restores Royal Candy-touched RomFS records to vanilla, and then removes generated overlays that are vanilla again. Some Sword/Shield containers are not byte-stable after pkNX rewrites them, so the cleanup also recognizes Royal Candy-generated text, raid reward, and placement archive states structurally. That prevents duplicate LayeredFS files from surviving just because the serialized container bytes differ from the original dump.
+
 ## PR Timeline For This Project
 
 The Infinite Rare Candy project overlaps the Royal editor integration PRs:
