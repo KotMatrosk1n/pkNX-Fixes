@@ -411,10 +411,9 @@ public sealed class SearchableComboBoxBehavior
     private static void DrawTextItem(DrawItemEventArgs e, string text, int leftPadding, bool hovered = false)
     {
         var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-        var backColor = selected
-            ? WinFormsTheme.SelectionBackground
-            : hovered ? WinFormsTheme.AlternateRowBackground : WinFormsTheme.InputBackground;
-        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+        var highlighted = selected || hovered;
+        var backColor = highlighted ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = highlighted ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
         using var background = new SolidBrush(backColor);
         e.Graphics.FillRectangle(background, e.Bounds);
