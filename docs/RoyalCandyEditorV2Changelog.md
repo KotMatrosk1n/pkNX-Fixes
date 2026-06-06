@@ -43,3 +43,8 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - replaces raid bonus reward entries with regular Rare Candy;
   - replaces hidden-item placement hashes with regular Rare Candy while preserving quantity and chance;
   - writes `royal_candy_source_cleanup_notes.txt` into generated output so the exact cleanup actions are inspectable.
+- Reduced trainer editor startup work:
+  - delays full level-up learnset loading until a move-fill or trainer-randomizer action actually needs it;
+  - removes duplicate trainer-class string loading during construction;
+  - batches trainer and trainer-class dropdown population to avoid per-item UI churn;
+  - keeps the SWSH class-ball safety rule but replaces per-class owner `HashSet` allocation with a lighter first-owner/multiple-owner scan.

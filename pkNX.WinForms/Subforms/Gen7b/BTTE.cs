@@ -17,7 +17,7 @@ public partial class BTTE : Form
 {
     private const int TrainerHeaderHeight = 42;
 
-    private readonly LearnsetRandomizer learn;
+    private LearnsetRandomizer? learn;
     private readonly string[][] AltForms;
     private readonly PictureBox[] pba;
 
@@ -66,13 +66,9 @@ public partial class BTTE : Form
         pba = [PB_Team1, PB_Team2, PB_Team3, PB_Team4, PB_Team5, PB_Team6];
 
         Stats.Personal = Personal = data.PersonalData;
-        learn = new LearnsetRandomizer(game.Info, data.LevelUpData.LoadAll(), Personal);
 
         AltForms = new byte[Personal.Table.Length]
             .Select(_ => Enumerable.Range(0, 32).Select(i => i.ToString()).ToArray()).ToArray();
-
-        trClass = Game.GetStrings(TextName.TrainerClasses);
-        trName = Game.GetStrings(TextName.TrainerClasses);
 
         abilitylist = Game.GetStrings(TextName.AbilityNames);
         movelist = Game.GetStrings(TextName.MoveNames);
@@ -338,18 +334,36 @@ public partial class BTTE : Form
             return;
 
         var count = Math.Max(Trainers.TrainerClass.Count, trClass.Length);
-        var owners = Enumerable.Range(0, count).Select(_ => new HashSet<string>()).ToArray();
+        var firstOwnerNames = new string?[count];
+        var hasMultipleOwners = new bool[count];
         for (int i = 0; i < Trainers.TrainerData.Count; i++)
         {
             var trainer = Trainers.ReadTrainer(Trainers.TrainerData[i]);
-            if ((uint)trainer.Class >= (uint)owners.Length)
+            var classIndex = trainer.Class;
+            if ((uint)classIndex >= (uint)firstOwnerNames.Length)
                 continue;
 
-            var name = (uint)i < (uint)trName.Length ? trName[i].Trim() : string.Empty;
-            owners[trainer.Class].Add(string.IsNullOrWhiteSpace(name) ? $"#{i}" : name);
+            var ownerName = GetTrainerClassOwnerName(i);
+            var firstOwnerName = firstOwnerNames[classIndex];
+            if (firstOwnerName is null)
+            {
+                firstOwnerNames[classIndex] = ownerName;
+            }
+            else if (!hasMultipleOwners[classIndex] && !string.Equals(firstOwnerName, ownerName, StringComparison.Ordinal))
+            {
+                hasMultipleOwners[classIndex] = true;
+            }
         }
 
-        TrainerClassHasSingleOwner = owners.Select(z => z.Count == 1).ToArray();
+        TrainerClassHasSingleOwner = firstOwnerNames
+            .Select((ownerName, i) => ownerName is not null && !hasMultipleOwners[i])
+            .ToArray();
+    }
+
+    private string GetTrainerClassOwnerName(int trainerIndex)
+    {
+        var name = (uint)trainerIndex < (uint)trName.Length ? trName[trainerIndex].Trim() : string.Empty;
+        return string.IsNullOrWhiteSpace(name) ? $"#{trainerIndex}" : name;
     }
 
     private bool CanEditTrainerClassBall(int classIndex) =>
@@ -644,13 +658,8 @@ public partial class BTTE : Form
 
     private void Setup()
     {
-        CB_TrainerID.Items.Clear();
-        for (int i = 0; i < Trainers.Length; i++)
-            CB_TrainerID.Items.Add(GetEntryTitle(trName[i], i));
-
-        CB_Trainer_Class.Items.Clear();
-        for (int i = 0; i < trClass.Length; i++)
-            CB_Trainer_Class.Items.Add(GetEntryTitle(trClass[i], i));
+        SetEntryTitleItems(CB_TrainerID, trName, Trainers.Length);
+        SetEntryTitleItems(CB_Trainer_Class, trClass, trClass.Length);
 
         specieslist[0] = "---";
         abilitylist[0] = itemlist[0] = movelist[0] = "(None)";
@@ -687,6 +696,26 @@ public partial class BTTE : Form
         CB_TrainerID.SelectedIndex = 0;
         entry = 0;
         PopulateFields(pkm);
+    }
+
+    private static void SetEntryTitleItems(ComboBox comboBox, IReadOnlyList<string> names, int count)
+    {
+        comboBox.BeginUpdate();
+        try
+        {
+            comboBox.Items.Clear();
+            var items = new object[count];
+            for (int i = 0; i < items.Length; i++)
+            {
+                var name = (uint)i < (uint)names.Count ? names[i] : string.Empty;
+                items[i] = GetEntryTitle(name, i);
+            }
+            comboBox.Items.AddRange(items);
+        }
+        finally
+        {
+            comboBox.EndUpdate();
+        }
     }
 
     private void ChangeTrainerIndex(object sender, EventArgs e)
@@ -1033,8 +1062,9 @@ public partial class BTTE : Form
         pkm.Species = CB_Species.SelectedIndex;
         pkm.Level = (int)NUD_Level.Value;
         pkm.Form = CB_Form.SelectedIndex;
+        var learnset = GetLearnsetRandomizer();
         var movedata = Data.MoveData.LoadAll();
-        var moves = learn.GetHighPoweredMoves(movedata, (ushort)pkm.Species, (byte)pkm.Form, 4);
+        var moves = learnset.GetHighPoweredMoves(movedata, (ushort)pkm.Species, (byte)pkm.Form, 4);
         SetMoves(moves);
     }
 
@@ -1043,7 +1073,7 @@ public partial class BTTE : Form
         pkm.Species = CB_Species.SelectedIndex;
         pkm.Level = (int)NUD_Level.Value;
         pkm.Form = CB_Form.SelectedIndex;
-        var moves = learn.GetCurrentMoves((ushort)pkm.Species, (byte)pkm.Form, pkm.Level, 4);
+        var moves = GetLearnsetRandomizer().GetCurrentMoves((ushort)pkm.Species, (byte)pkm.Form, pkm.Level, 4);
         SetMoves(moves);
     }
 
@@ -1098,12 +1128,13 @@ public partial class BTTE : Form
         var rspec = new SpeciesRandomizer(Game.Info, Personal);
         var rform = new FormRandomizer(Personal);
         rspec.Initialize((SpeciesSettings)PG_Species.SelectedObject!, ban);
-        learn.Moves = moves;
+        var learnset = GetLearnsetRandomizer();
+        learnset.Moves = moves;
         var evos = Data.EvolutionData;
         var trand = new TrainerRandomizer(Game.Info, Personal, Trainers.LoadAll(), evos.LoadAll())
         {
             ClassCount = CB_Trainer_Class.Items.Count,
-            Learn = learn,
+            Learn = learnset,
             RandMove = rmove,
             RandSpec = rspec,
             RandForm = rform,
@@ -1112,6 +1143,9 @@ public partial class BTTE : Form
         trand.Initialize((TrainerRandSettings)PG_RTrainer.SelectedObject!, (SpeciesSettings)PG_Species.SelectedObject!);
         return trand;
     }
+
+    private LearnsetRandomizer GetLearnsetRandomizer() =>
+        learn ??= new LearnsetRandomizer(Game.Info, Data.LevelUpData.LoadAll(), Personal);
 
     private void B_Boost_Click(object sender, EventArgs e)
     {
