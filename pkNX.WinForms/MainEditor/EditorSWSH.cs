@@ -34,9 +34,11 @@ internal class EditorSWSH : EditorBase
         "Planned workflow for Royal Candy item setup, text, shop availability, ExeFS hooks, cap ladder validation, patch notes, and probe builds.");
 
     [EditorCallable(EditorCategory.None, editorName: "Flagwork", toolset: EditorToolset.RoyalSword, description: "Royal Sword Flagwork Browser: search and inspect Sword/Shield flagwork hash tables.")]
-    public void RoyalSwordFlagwork() => ShowRoyalSwordToolPlaceholder(
-        "Royal Sword Flagwork Browser",
-        "Planned browser for flag/work names, hashes, save keys, table sources, and copyable references.");
+    public void RoyalSwordFlagwork()
+    {
+        using var form = new RoyalSwordFlagworkBrowser(ROM.PathRomFS);
+        form.ShowDialog();
+    }
 
     [EditorCallable(EditorCategory.None, editorName: "Story Events", toolset: EditorToolset.RoyalSword, description: "Royal Sword Story Event Inspector: connect main-event text, AMX scripts, and flag/work references.")]
     public void RoyalSwordStoryEvents() => ShowRoyalSwordToolPlaceholder(
