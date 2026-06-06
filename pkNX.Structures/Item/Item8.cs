@@ -37,14 +37,14 @@ public class Item8(int id, Memory<byte> Raw, Item8MachineTable? machineTable = n
         set => WriteUInt32LittleEndian(Data[(0x08)..], value);
     }
 
-    [Category(Inventory), Description("Bag pocket where the item appears.")]
+    [Category(Inventory), Description("Bag pocket where the item appears. This controls bag placement, but item-use behavior also depends on the field-use and item-type bytes.")]
     public PouchID Pouch
     {
         get => (PouchID)(Data[0x11] & 0xF);
         set => Data[0x11] = (byte)((Data[0x11] & 0xF0) | ((byte)value & 0xF));
     }
 
-    [Category(RawCategory), DisplayName("Pouch Flags"), Description("Upper nibble packed with the pouch value. Purpose is not fully decoded.")]
+    [Category(RawCategory), DisplayName("Pouch Flags"), Description("Upper nibble packed with the pouch value. Purpose is not fully decoded; preserve vanilla values unless comparing against similar item rows.")]
     public byte PouchFlags
     {
         get => (byte)(Data[0x11] >> 4);
@@ -58,28 +58,28 @@ public class Item8(int id, Memory<byte> Raw, Item8MachineTable? machineTable = n
         set => Data[0x12] = value;
     }
 
-    [Category(Field), DisplayName("Field Use Type"), Description("General field-use behavior, such as medicine, TM, spray, evolution item, or berry.")]
+    [Category(Field), DisplayName("Field Use Type"), Description("General field-use route, such as medicine, TM, spray, evolution item, or berry. Final behavior can still depend on executable-side item handlers.")]
     public FieldItemType EffectField
     {
         get => (FieldItemType)Data[0x13];
         set => Data[0x13] = (byte)value;
     }
 
-    [Category(Field), DisplayName("Can Use on Pokemon"), Description("Allows this item to be used on a Pokemon from the party/menu.")]
+    [Category(Field), DisplayName("Can Use on Pokemon"), Description("Allows this item to target a Pokemon from the party/menu. The resulting effect still depends on the field-use type, flags, and item handler.")]
     public bool CanUseOnPokemon
     {
         get => Data[0x15] == 1;
         set => Data[0x15] = (byte)(value ? 1 : 0);
     }
 
-    [Category(RawCategory), DisplayName("Field Flags"), Description("Unknown field-use flags.")]
+    [Category(RawCategory), DisplayName("Field Flags"), Description("Raw field-use routing flags. Compare against vanilla items with the same field-use type before changing.")]
     public byte FieldFlags
     {
         get => Data[0x14];
         set => Data[0x14] = value;
     }
 
-    [Category(RawCategory), DisplayName("Item Type"), Description("Unknown item type/classification byte.")]
+    [Category(RawCategory), DisplayName("Item Type"), Description("Secondary item classification byte used by menu/item routing. Known Sword/Shield values include 7 for TM/TR rows and 9 for key-item-style usable items.")]
     public byte ItemType
     {
         get => Data[0x16];
@@ -93,21 +93,21 @@ public class Item8(int id, Memory<byte> Raw, Item8MachineTable? machineTable = n
         set => Data[0x18] = value;
     }
 
-    [Category(Inventory), DisplayName("Item Sprite"), Description("Icon/sprite index used by the bag UI.")]
+    [Category(Inventory), DisplayName("Item Sprite"), Description("Icon/sprite index used by the bag UI. This is visual only; it does not select item behavior.")]
     public int ItemSprite
     {
         get => ReadInt16LittleEndian(Data[0x1A..]);
         set => WriteInt16LittleEndian(Data[0x1A..], (short)value);
     }
 
-    [Category(Inventory), DisplayName("Group Type"), Description("Item group used for related item families, such as Balls, Berries, TMs, or Gems.")]
+    [Category(Inventory), DisplayName("Group Type"), Description("Item family used by related handlers, such as Balls, Berries, TMs/TRs, or Gems. Standalone items usually leave this as None.")]
     public GroupIndexType GroupType
     {
         get => (GroupIndexType)Data[0x1C];
         set => Data[0x1C] = (byte)value;
     }
 
-    [Category(Inventory), DisplayName("Group Index"), Description("Index inside the selected group type.")]
+    [Category(Inventory), DisplayName("Group Index"), Description("Index inside the selected group type. For TM/TR items, 0-99 are TMs and 100-199 are TRs.")]
     public byte GroupIndex
     {
         get => Data[0x1D];
@@ -221,7 +221,7 @@ public class Item8(int id, Memory<byte> Raw, Item8MachineTable? machineTable = n
         set => Boost0 = (byte)((Boost0 & ~(1 << 1)) | ((value ? 1 : 0) << 1));
     }
 
-    [Category(Field), DisplayName("Level Up"), Description("Makes the item trigger a level-up effect, used by Rare Candy.")]
+    [Category(Field), DisplayName("Level Up"), Description("Marks the row as a level-up item, used by Rare Candy and EXP Candy-family items. Exact EXP-vs-level behavior is resolved by executable item logic.")]
     public bool LevelUp
     {
         get => ((Boost0 >> 2) & 1) == 1;
