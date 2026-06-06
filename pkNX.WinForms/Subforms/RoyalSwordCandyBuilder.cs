@@ -675,7 +675,10 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.StoryCapLadder)
             PatchStoryCapLadder(nso.DecompressedText, options.ItemId, FirstHopFlagHash, options.MaxStoryCap, patchNotes);
         if (options.VirtualCount is { } virtualCount)
+        {
+            PatchCandidateVirtualInventoryOwnership(nso.DecompressedText, options.ItemId, patchNotes);
             PatchCandidateVirtualInventoryCount(nso.DecompressedText, options.ItemId, virtualCount, patchNotes);
+        }
         PatchRoyalCandyUiRoute(nso.DecompressedText, options.ItemId, patchNotes);
 
         WriteOutputBytes(options.OutputPath, "exefs/main", nso.Write());
@@ -1006,6 +1009,30 @@ internal static class RoyalCandyLayeredFsBuilder
         WriteInstruction(text, clampSelectOffset, EncodeBranch(clampSelectOffset, firstCaveOffset));
 
         notes.Add($"- text+0x{clampSelectOffset:X}: Royal Candy bypasses the vanilla min(inventory count, useful count) clamp.");
+    }
+
+    private static void PatchCandidateVirtualInventoryOwnership(byte[] text, int candidateId, List<string> notes)
+    {
+        const int itemOwnershipFunctionOffset = 0x01420EF0;
+        const int resumeOffset = itemOwnershipFunctionOffset + 4;
+        const uint expectedFirstInstruction = 0xF81D0FF5;
+
+        ExpectInstruction(text, itemOwnershipFunctionOffset, expectedFirstInstruction, "item-ownership helper first instruction");
+
+        var dispatchCaveOffset = AllocateCodeCave(text, 0xC, "Royal Candy virtual ownership dispatch");
+        var returnCaveOffset = AllocateCodeCave(text, 0x8, "Royal Candy virtual ownership return");
+        var vanillaCaveOffset = FindCodeCaveOrThrow(text, 0x8, "Royal Candy virtual ownership vanilla path");
+
+        WriteInstruction(text, itemOwnershipFunctionOffset, EncodeBranch(itemOwnershipFunctionOffset, dispatchCaveOffset));
+        WriteInstruction(text, dispatchCaveOffset, EncodeCmpImmediate(1, candidateId));
+        WriteInstruction(text, dispatchCaveOffset + 4, EncodeConditionalBranch(dispatchCaveOffset + 4, returnCaveOffset, Arm64Condition.EQ));
+        WriteInstruction(text, dispatchCaveOffset + 8, EncodeBranch(dispatchCaveOffset + 8, vanillaCaveOffset));
+        WriteInstruction(text, returnCaveOffset, EncodeMovzImmediate32(0, 1));
+        WriteInstruction(text, returnCaveOffset + 4, EncodeRet());
+        WriteInstruction(text, vanillaCaveOffset, expectedFirstInstruction);
+        WriteInstruction(text, vanillaCaveOffset + 4, EncodeBranch(vanillaCaveOffset + 4, resumeOffset));
+
+        notes.Add($"- text+0x{itemOwnershipFunctionOffset:X}: item-ownership helper reports Royal Candy as owned.");
     }
 
     private static void PatchCandidateVirtualInventoryCount(byte[] text, int candidateId, int virtualCount, List<string> notes)
