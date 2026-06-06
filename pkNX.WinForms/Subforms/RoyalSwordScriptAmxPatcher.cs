@@ -19,7 +19,7 @@ internal static class RoyalSwordScriptAmxPatcher
     private const int OpSysreqN = 135;
     private const int OpPushmPc = 188;
 
-    public static IReadOnlyList<string> PatchBagEventRoyalCandyGrant(string romFsPath, string outputRoot, int candidateId)
+    public static IReadOnlyList<string> PatchBagEventRoyalCandyGrant(string inputPath, string outputRoot, int candidateId)
     {
         const string outputRelativePath = "romfs/bin/script/amx/main_event_0020.amx";
         const uint duplicatedNativeHash = 0x0473BE4E;
@@ -34,7 +34,6 @@ internal static class RoyalSwordScriptAmxPatcher
         if (candidateId is < 0 or > 0xFFFF)
             throw new ArgumentOutOfRangeException(nameof(candidateId), "Royal Candy Bag-event grant item id must fit the AMX patch range.");
 
-        var inputPath = Path.Combine(romFsPath, PathFromSlash(BagEventScriptPath));
         if (!File.Exists(inputPath))
             throw new FileNotFoundException("Could not find Bag event AMX script.", inputPath);
 

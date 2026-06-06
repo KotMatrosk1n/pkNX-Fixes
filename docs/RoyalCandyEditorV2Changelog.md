@@ -17,6 +17,9 @@ This document tracks the dedicated Royal Candy editor redesign PR.
 - Warn clearly before writing ExeFS/RomFS output that the patch is build-specific and requires a new game.
 - Remove the source item being repurposed for Royal Candy from player-accessible acquisition sources.
 - Verify that generated output matches the previously tested mod structure.
+- Generate output directly into the Sword/Shield title-ID LayeredFS folder, matching normal pkNX editor output.
+- Read existing title-ID mod files as higher-priority input over the base dump so Royal Candy can be added to an in-progress mod.
+- Preflight existing ExeFS edits before writing and report already-installed Royal Candy output by mode/version.
 - Investigate slow editor loading, especially trainer-related editors, and prepare a focused fix.
 
 ## Implementation Notes
@@ -56,4 +59,14 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - RomFS file count is now logged as informational only;
   - the editor checks for the item table, item hash table, shop data, raid/placement archives, Bag-event AMX script, ExeFS `main`, and `main.npdm`;
   - message validation now requires at least one language `common` folder with `iteminfo.dat` and `itemname*.dat`;
-  - a 50,494-file `C:\SW` dump passed the two-mode builder probe after the validation change.
+  - a 50,494-file Sword dump passed the two-mode builder probe after the validation change.
+- Updated Royal Candy output and layering behavior:
+  - default output now targets the selected game's title-ID folder (`0100ABF008968000` for Sword, `01008DB008C2C000` for Shield);
+  - RomFS, AMX, message, item-hash, shop, raid, placement, and ExeFS reads now prefer files already present in the output LayeredFS folder before falling back to the base dump;
+  - the Bag-event AMX patcher now accepts the resolved source script path, allowing it to patch an existing layered script instead of silently ignoring it;
+  - build preflight detects existing Royal Candy output from README/notes and reports the installed mode/game before refusing to stack another Royal Candy patch;
+  - build preflight dry-runs the ExeFS patch against an existing layered `exefs/main` when present and reports conflicts before the warning/confirm step.
+- Re-ran the builder probes after the LayeredFS layering change:
+  - fresh unlimited/custom-limit scratch output still generated the expected item/text/source-cleanup/AMX/ExeFS files;
+  - existing Royal Candy output was detected as `Unlimited for Sword` and refused before repatching;
+  - an existing compatible `exefs/main` overlay was accepted and patched from the overlay source.

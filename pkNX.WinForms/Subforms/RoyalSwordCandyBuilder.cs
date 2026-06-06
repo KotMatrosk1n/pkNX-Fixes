@@ -148,13 +148,10 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         LogText.Text = string.Join(Environment.NewLine, status.LogLines);
     }
 
-    private string GetDefaultOutputPath(RoyalCandyBuildMode mode)
+    private string GetDefaultOutputPath()
     {
         var root = Directory.GetParent(RomFsPath)?.FullName ?? RomFsPath;
-        var folderName = mode == RoyalCandyBuildMode.Unlimited
-            ? "royal-candy-1128-unlimited"
-            : "royal-candy-1128-custom-limits";
-        return Path.Combine(root, folderName);
+        return Path.Combine(root, GetTitleId(SelectedGame));
     }
 
     private RoyalCandyProjectStatus AnalyzeProject()
@@ -312,10 +309,14 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
     private void BuildUnlimited()
     {
+        var options = CreateOptions(RoyalCandyBuildMode.Unlimited, null);
+        if (!CheckBuildPreflight(options))
+            return;
+
         if (!ConfirmDangerousBuild())
             return;
 
-        RunBuild(RoyalCandyBuildMode.Unlimited, null);
+        RunBuild(options);
     }
 
     private void CustomizeLimits()
@@ -323,15 +324,48 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         using var dialog = new RoyalCandyLimitDialog(SelectedGame, DefaultStartingCap, RoyalCandyLayeredFsBuilder.GetDefaultCapMilestoneDefinitions());
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
+
+        var options = CreateOptions(RoyalCandyBuildMode.CustomLimits, dialog.Milestones);
+        if (!CheckBuildPreflight(options))
+            return;
+
         if (!ConfirmDangerousBuild())
             return;
 
-        RunBuild(RoyalCandyBuildMode.CustomLimits, dialog.Milestones);
+        RunBuild(options);
     }
 
-    private void RunBuild(RoyalCandyBuildMode mode, IReadOnlyList<RoyalCandyCapMilestone>? customMilestones)
+    private bool CheckBuildPreflight(RoyalCandyBuildOptions options)
     {
-        var options = CreateOptions(mode, customMilestones);
+        ToggleActions(false);
+        try
+        {
+            var preflight = RoyalCandyLayeredFsBuilder.AnalyzeBuildPreflight(options);
+            SetResults(preflight.Results);
+            LogText.Text = string.Join(Environment.NewLine, preflight.Notes);
+            if (preflight.Passed)
+                return true;
+
+            MessageBox.Show(this, preflight.Message, "Royal Candy Preflight", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            SetResults([
+                new("Fail", "Preflight", string.Empty, ex.Message),
+            ]);
+            LogText.Text = ex.ToString();
+            MessageBox.Show(this, ex.Message, "Royal Candy Preflight", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        finally
+        {
+            ToggleActions(true);
+        }
+    }
+
+    private void RunBuild(RoyalCandyBuildOptions options)
+    {
         ToggleActions(false);
         try
         {
@@ -363,7 +397,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         return new(
             RomFsPath,
             ExeFsPath,
-            GetDefaultOutputPath(mode),
+            GetDefaultOutputPath(),
             DefaultRoyalCandyItemId,
             DefaultTemplateItemId,
             true,
@@ -379,6 +413,13 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             customMilestones,
             mode);
     }
+
+    private static string GetTitleId(RoyalCandyGameFlavor gameFlavor) => gameFlavor switch
+    {
+        RoyalCandyGameFlavor.Sword => "0100ABF008968000",
+        RoyalCandyGameFlavor.Shield => "01008DB008C2C000",
+        _ => throw new ArgumentOutOfRangeException(nameof(gameFlavor), gameFlavor, null),
+    };
 
     private bool ConfirmDangerousBuild()
     {
@@ -727,6 +768,12 @@ internal static class RoyalCandyLayeredFsBuilder
             "",
         };
 
+        var preflight = AnalyzeBuildPreflight(options);
+        if (!preflight.Passed)
+            throw new InvalidOperationException(preflight.Message);
+
+        results.AddRange(preflight.Results);
+        notes.AddRange(preflight.Notes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
         Directory.CreateDirectory(options.OutputPath);
 
         if (options.BuildRomFs)
@@ -747,12 +794,75 @@ internal static class RoyalCandyLayeredFsBuilder
         return new(results, notes);
     }
 
+    public static RoyalCandyBuildPreflight AnalyzeBuildPreflight(RoyalCandyBuildOptions options)
+    {
+        var results = new List<BuildResult>();
+        var notes = new List<string>
+        {
+            "Royal Candy preflight",
+            "=====================",
+            "",
+            $"LayeredFS output root: {options.OutputPath}",
+            "Existing files in the output root take priority over the base RomFS/ExeFS dump when the builder reads source data.",
+            "",
+        };
+
+        var existingRoyalCandy = DetectExistingRoyalCandy(options.OutputPath);
+        if (existingRoyalCandy is not null)
+        {
+            var message = $"Existing Royal Candy patch detected in the selected mod folder: {existingRoyalCandy}. Remove that Royal Candy output before building a new one.";
+            results.Add(new("Fail", "Preflight", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes);
+        }
+
+        if (!options.BuildExeFs)
+        {
+            results.Add(new("Pass", "Preflight", "ExeFS", "ExeFS output is disabled for this build."));
+            notes.Add("- ExeFS output disabled; conflict check skipped.");
+            return new(true, "Preflight passed.", results, notes);
+        }
+
+        var overlayMainPath = GetLayeredFsExeFsPath(options, "main");
+        var sourceMainPath = ResolveExeFsSourcePath(options, "main");
+        var usingOverlayMain = File.Exists(overlayMainPath);
+        if (!File.Exists(sourceMainPath))
+        {
+            var message = "Could not find exefs/main in either the selected mod folder or the base ExeFS dump.";
+            results.Add(new("Fail", "Preflight", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes);
+        }
+
+        try
+        {
+            _ = CreatePatchedExeFsMain(File.ReadAllBytes(sourceMainPath), options, []);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            var message = usingOverlayMain
+                ? $"Existing exefs/main in the selected mod folder conflicts with the Royal Candy ExeFS patch: {ex.Message}"
+                : $"Base exefs/main is not compatible with the Royal Candy ExeFS patch: {ex.Message}";
+            results.Add(new("Fail", "Preflight", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes);
+        }
+
+        var passMessage = usingOverlayMain
+            ? "Existing exefs/main overlay found; Royal Candy patch points are still compatible."
+            : "No exefs/main overlay found; Royal Candy will patch the base ExeFS main.";
+        results.Add(new("Pass", "Preflight", "exefs/main", passMessage));
+        notes.Add("- " + passMessage);
+        return new(true, "Preflight passed.", results, notes);
+    }
+
     private static void PatchItemData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
-        var sourcePath = GetRomFsPath(options.RomFsPath, ItemPath);
+        var sourcePath = ResolveRomFsSourcePath(options, ItemPath);
         if (!File.Exists(sourcePath))
             throw new FileNotFoundException("Could not find Sword/Shield item table.", sourcePath);
 
+        var sourceDescription = DescribeLayeredSource(options, "romfs", ItemPath);
         var itemData = File.ReadAllBytes(sourcePath);
         var items = Item8.GetArray(itemData);
         if ((uint)options.ItemId >= (uint)items.Length)
@@ -801,33 +911,24 @@ internal static class RoyalCandyLayeredFsBuilder
         ]));
 
         results.Add(new("Pass", "RomFS", "romfs/" + ItemPath, "Royal Candy item row generated."));
-        notes.Add($"- Generated romfs/{ItemPath} from item {options.TemplateItemId} into item {options.ItemId}.");
+        notes.Add($"- Generated romfs/{ItemPath} from item {options.TemplateItemId} into item {options.ItemId}; source was {sourceDescription}.");
     }
 
     private static void PatchItemText(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
-        var messageRoot = GetRomFsPath(options.RomFsPath, MessageRoot);
-        if (!Directory.Exists(messageRoot))
-            throw new DirectoryNotFoundException($"Could not find message root: {messageRoot}");
-
         var patchedFiles = 0;
-        foreach (var languageDirectory in Directory.EnumerateDirectories(messageRoot))
+        foreach (var language in EnumerateMessageLanguages(options))
         {
-            var commonDirectory = Path.Combine(languageDirectory, "common");
-            if (!Directory.Exists(commonDirectory))
-                continue;
-
-            foreach (var sourcePath in Directory.EnumerateFiles(commonDirectory, "itemname*.dat"))
+            foreach (var fileName in EnumerateMessageFileNames(options, language, "itemname*.dat"))
             {
-                var fileName = Path.GetFileName(sourcePath);
                 var replacement = fileName.Contains("plural", StringComparison.OrdinalIgnoreCase)
                     ? RoyalCandyPluralName
                     : RoyalCandyName;
-                if (PatchOneTextFile(commonDirectory, options, fileName, options.ItemId, replacement))
+                if (PatchOneTextFile(options, $"{MessageRoot}/{language}/common/{fileName}", options.ItemId, replacement))
                     patchedFiles++;
             }
 
-            if (PatchOneTextFile(commonDirectory, options, ItemInfoFile, options.ItemId, options.ItemDescription))
+            if (PatchOneTextFile(options, $"{MessageRoot}/{language}/common/{ItemInfoFile}", options.ItemId, options.ItemDescription))
                 patchedFiles++;
         }
 
@@ -835,9 +936,9 @@ internal static class RoyalCandyLayeredFsBuilder
         notes.Add($"- Patched {patchedFiles:N0} item name/description message files.");
     }
 
-    private static bool PatchOneTextFile(string commonDirectory, RoyalCandyBuildOptions options, string fileName, int lineIndex, string replacement)
+    private static bool PatchOneTextFile(RoyalCandyBuildOptions options, string relativePath, int lineIndex, string replacement)
     {
-        var sourcePath = Path.Combine(commonDirectory, fileName);
+        var sourcePath = ResolveRomFsSourcePath(options, relativePath);
         if (!File.Exists(sourcePath))
             return false;
 
@@ -848,7 +949,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var lines = text.Lines;
         var flags = text.Flags;
         if ((uint)lineIndex >= (uint)lines.Length)
-            throw new IndexOutOfRangeException($"{fileName} has {lines.Length} lines; cannot patch line {lineIndex}.");
+            throw new IndexOutOfRangeException($"{Path.GetFileName(relativePath)} has {lines.Length} lines; cannot patch line {lineIndex}.");
 
         lines[lineIndex] = replacement;
         var patched = new TextFile(new TextConfig(GameVersion.SW), remapChars: true)
@@ -858,7 +959,6 @@ internal static class RoyalCandyLayeredFsBuilder
             Flags = flags,
         };
 
-        var relativePath = Path.GetRelativePath(options.RomFsPath, sourcePath).Replace('\\', '/');
         WriteOutputBytes(options.OutputPath, "romfs/" + relativePath, patched.Data);
         return true;
     }
@@ -889,7 +989,7 @@ internal static class RoyalCandyLayeredFsBuilder
 
     private static int PatchSourceShopData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
     {
-        var sourcePath = GetRomFsPath(options.RomFsPath, ShopPath);
+        var sourcePath = ResolveRomFsSourcePath(options, ShopPath);
         if (!File.Exists(sourcePath))
         {
             results.Add(new("Warning", "RomFS", "romfs/" + ShopPath, "shop_data.bin was not found; shop cleanup skipped."));
@@ -917,7 +1017,7 @@ internal static class RoyalCandyLayeredFsBuilder
 
     private static int PatchSourceRaidRewards(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
     {
-        var sourcePath = GetRomFsPath(options.RomFsPath, NestDataPath);
+        var sourcePath = ResolveRomFsSourcePath(options, NestDataPath);
         if (!File.Exists(sourcePath))
         {
             results.Add(new("Warning", "RomFS", "romfs/" + NestDataPath, "data_table.gfpak was not found; raid reward cleanup skipped."));
@@ -968,7 +1068,7 @@ internal static class RoyalCandyLayeredFsBuilder
 
     private static int PatchSourcePlacementItems(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
     {
-        var placementPath = GetRomFsPath(options.RomFsPath, PlacementPath);
+        var placementPath = ResolveRomFsSourcePath(options, PlacementPath);
         if (!File.Exists(placementPath))
         {
             results.Add(new("Warning", "RomFS", "romfs/" + PlacementPath, "placement.gfpak was not found; placement item cleanup skipped."));
@@ -976,7 +1076,7 @@ internal static class RoyalCandyLayeredFsBuilder
             return 0;
         }
 
-        var hashes = ReadItemHashes(options.RomFsPath);
+        var hashes = ReadItemHashes(options);
         if (!hashes.TryGetValue(options.ItemId, out var sourceItemHash))
             throw new InvalidOperationException($"Could not find item hash for source item {options.ItemId}.");
         if (!hashes.TryGetValue(RareCandyItemId, out var rareCandyHash))
@@ -1094,7 +1194,8 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.ItemId != RoyalCandyItemId)
             throw new InvalidOperationException("The Royal Candy Bag-event grant currently targets item id 1128 only.");
 
-        var patchNotes = RoyalSwordScriptAmxPatcher.PatchBagEventRoyalCandyGrant(options.RomFsPath, options.OutputPath, options.ItemId);
+        var sourcePath = ResolveRomFsSourcePath(options, RoyalSwordScriptAmxPatcher.BagEventScriptPath);
+        var patchNotes = RoyalSwordScriptAmxPatcher.PatchBagEventRoyalCandyGrant(sourcePath, options.OutputPath, options.ItemId);
 
         results.Add(new("Pass", "RomFS", "romfs/bin/script/amx/main_event_0020.amx", "Bag pickup script grant generated."));
         notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
@@ -1105,23 +1206,35 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.ItemId != RoyalCandyItemId)
             throw new InvalidOperationException("The Royal Candy ExeFS patch currently targets item id 1128 only.");
 
-        var mainPath = Path.Combine(options.ExeFsPath, "main");
+        var mainPath = ResolveExeFsSourcePath(options, "main");
         if (!File.Exists(mainPath))
             throw new FileNotFoundException("Could not find exefs/main for Royal Candy patching.", mainPath);
 
-        var nso = new NSO(File.ReadAllBytes(mainPath));
+        var patchNotes = new List<string>();
+        var patched = CreatePatchedExeFsMain(File.ReadAllBytes(mainPath), options, patchNotes);
+        WriteOutputBytes(options.OutputPath, "exefs/main", patched);
+        var notesPath = Path.Combine(options.OutputPath, "exefs", "royal_candy_ui_hook_patch_notes.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(notesPath)!);
+        File.WriteAllText(notesPath, string.Join(Environment.NewLine, patchNotes));
+
+        results.Add(new("Pass", "ExeFS", "exefs/main", "Royal Candy ExeFS patch generated."));
+        notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
+    }
+
+    private static byte[] CreatePatchedExeFsMain(byte[] sourceMain, RoyalCandyBuildOptions options, List<string> patchNotes)
+    {
+        var nso = new NSO(sourceMain);
         if (!nso.Header.Valid)
             throw new InvalidOperationException("The selected main file is not a valid NSO.");
 
-        var patchNotes = new List<string>
-        {
+        patchNotes.AddRange([
             "Royal Candy ExeFS patch",
             "=======================",
             "",
             $"Build ID: {Convert.ToHexString(nso.Header.DigestBuildID)}",
             $"Royal Candy item id: {options.ItemId}",
             "",
-        };
+        ]);
 
         PatchExpCandyFixedAmountBypass(nso.DecompressedText, options.ItemId, patchNotes);
         if (options.InfiniteUse)
@@ -1135,13 +1248,7 @@ internal static class RoyalCandyLayeredFsBuilder
         }
         PatchRoyalCandyUiRoute(nso.DecompressedText, options.ItemId, patchNotes);
 
-        WriteOutputBytes(options.OutputPath, "exefs/main", nso.Write());
-        var notesPath = Path.Combine(options.OutputPath, "exefs", "royal_candy_ui_hook_patch_notes.txt");
-        Directory.CreateDirectory(Path.GetDirectoryName(notesPath)!);
-        File.WriteAllText(notesPath, string.Join(Environment.NewLine, patchNotes));
-
-        results.Add(new("Pass", "ExeFS", "exefs/main", "Royal Candy ExeFS patch generated."));
-        notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
+        return nso.Write();
     }
 
     private static void PatchRoyalCandyUiRoute(byte[] text, int candidateId, List<string> notes)
@@ -1805,6 +1912,7 @@ internal static class RoyalCandyLayeredFsBuilder
             "# Royal Candy Patch",
             "",
             "This folder is shaped like a Sword/Shield LayeredFS patch generated by pkNX Royal Sword Candy Builder.",
+            "When this build was generated, existing files in this LayeredFS folder were treated as higher-priority source files over the base dump.",
             "",
             $"Selected item id: `{options.ItemId}`",
             $"Template item id: `{options.TemplateItemId}`",
@@ -1831,13 +1939,121 @@ internal static class RoyalCandyLayeredFsBuilder
     private static string GetRomFsPath(string romFsPath, string relativePath) =>
         Path.Combine(romFsPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
-    private static Dictionary<int, ulong> ReadItemHashes(string romFsPath)
+    private static string GetBaseRomFsPath(RoyalCandyBuildOptions options, string relativePath) =>
+        GetRomFsPath(options.RomFsPath, relativePath);
+
+    private static string GetLayeredFsRomFsPath(RoyalCandyBuildOptions options, string relativePath) =>
+        Path.Combine(options.OutputPath, "romfs", relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    private static string ResolveRomFsSourcePath(RoyalCandyBuildOptions options, string relativePath)
     {
-        var sourcePath = GetRomFsPath(romFsPath, ItemHashPath);
+        var layeredPath = GetLayeredFsRomFsPath(options, relativePath);
+        return File.Exists(layeredPath) ? layeredPath : GetBaseRomFsPath(options, relativePath);
+    }
+
+    private static string GetBaseExeFsPath(RoyalCandyBuildOptions options, string relativePath) =>
+        Path.Combine(options.ExeFsPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    private static string GetLayeredFsExeFsPath(RoyalCandyBuildOptions options, string relativePath) =>
+        Path.Combine(options.OutputPath, "exefs", relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    private static string ResolveExeFsSourcePath(RoyalCandyBuildOptions options, string relativePath)
+    {
+        var layeredPath = GetLayeredFsExeFsPath(options, relativePath);
+        return File.Exists(layeredPath) ? layeredPath : GetBaseExeFsPath(options, relativePath);
+    }
+
+    private static string DescribeLayeredSource(RoyalCandyBuildOptions options, string section, string relativePath)
+    {
+        var layeredPath = Path.Combine(options.OutputPath, section, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        return File.Exists(layeredPath) ? "the existing LayeredFS mod file" : "the base dump file";
+    }
+
+    private static Dictionary<int, ulong> ReadItemHashes(RoyalCandyBuildOptions options)
+    {
+        var sourcePath = ResolveRomFsSourcePath(options, ItemHashPath);
         if (!File.Exists(sourcePath))
             throw new FileNotFoundException("Could not find Sword/Shield item hash table.", sourcePath);
 
         return ItemHash8.GetItemHashTable(File.ReadAllBytes(sourcePath));
+    }
+
+    private static IEnumerable<string> EnumerateMessageLanguages(RoyalCandyBuildOptions options)
+    {
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        AddDirectoryNames(GetBaseRomFsPath(options, MessageRoot), names);
+        AddDirectoryNames(GetLayeredFsRomFsPath(options, MessageRoot), names);
+        return names;
+    }
+
+    private static IEnumerable<string> EnumerateMessageFileNames(RoyalCandyBuildOptions options, string language, string pattern)
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddFileNames(GetBaseRomFsPath(options, $"{MessageRoot}/{language}/common"), pattern, names);
+        AddFileNames(GetLayeredFsRomFsPath(options, $"{MessageRoot}/{language}/common"), pattern, names);
+        return names;
+    }
+
+    private static void AddDirectoryNames(string root, ISet<string> names)
+    {
+        if (!Directory.Exists(root))
+            return;
+
+        foreach (var directory in Directory.EnumerateDirectories(root))
+            names.Add(Path.GetFileName(directory));
+    }
+
+    private static void AddFileNames(string root, string pattern, ISet<string> names)
+    {
+        if (!Directory.Exists(root))
+            return;
+
+        foreach (var file in Directory.EnumerateFiles(root, pattern))
+            names.Add(Path.GetFileName(file));
+    }
+
+    private static string? DetectExistingRoyalCandy(string outputRoot)
+    {
+        var readmePath = Path.Combine(outputRoot, "README.md");
+        if (File.Exists(readmePath) && TryDescribeRoyalCandyReadme(readmePath, out var readmeDescription))
+            return readmeDescription;
+
+        var notesPath = Path.Combine(outputRoot, "exefs", "royal_candy_ui_hook_patch_notes.txt");
+        if (File.Exists(notesPath))
+            return "unknown mode/version; ExeFS Royal Candy notes were found";
+
+        return null;
+    }
+
+    private static bool TryDescribeRoyalCandyReadme(string readmePath, out string description)
+    {
+        var lines = File.ReadAllLines(readmePath);
+        if (!lines.Any(z => z.Contains("Royal Candy Patch", StringComparison.OrdinalIgnoreCase)))
+        {
+            description = string.Empty;
+            return false;
+        }
+
+        var mode = ReadMarkdownCodeValue(lines, "Mode") ?? "unknown mode";
+        var game = ReadMarkdownCodeValue(lines, "Game") ?? "unknown game";
+        description = $"{mode} for {game}";
+        return true;
+    }
+
+    private static string? ReadMarkdownCodeValue(IEnumerable<string> lines, string label)
+    {
+        var prefix = $"{label}: `";
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+
+            var start = prefix.Length;
+            var end = line.IndexOf('`', start);
+            return end > start ? line[start..end] : null;
+        }
+
+        return null;
     }
 
     private static Dictionary<ulong, string> TryReadAhtbDictionary(GFPack pack, string fileName)
@@ -1907,6 +2123,7 @@ internal sealed record RoyalCandyBuildOptions(
     RoyalCandyBuildMode Mode);
 
 internal sealed record RoyalCandyBuildSummary(IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
+internal sealed record RoyalCandyBuildPreflight(bool Passed, string Message, IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
 internal sealed record BuildResult(string Status, string Area, string Output, string Message);
 
 internal enum RoyalCandyBuildMode
