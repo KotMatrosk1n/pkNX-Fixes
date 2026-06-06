@@ -48,3 +48,7 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - removes duplicate trainer-class string loading during construction;
   - batches trainer and trainer-class dropdown population to avoid per-item UI churn;
   - keeps the SWSH class-ball safety rule but replaces per-class owner `HashSet` allocation with a lighter first-owner/multiple-owner scan.
+- Re-ran the builder probe for both unlimited and custom-limit modes:
+  - unlimited mode generates the Royal Candy item, text, source cleanup, Bag-event grant, and ExeFS infinite-use/virtual-count/UI-route patches;
+  - custom-limit mode generates the same base output plus the story-cap use gate, quantity max, clamp bypass, and shared cap helper patches;
+  - both modes report 1 shop removal, 18 raid reward replacements, and 10 placement pickup replacements.
