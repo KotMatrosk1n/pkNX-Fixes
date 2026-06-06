@@ -29,9 +29,11 @@ internal class EditorSWSH : EditorBase
     protected internal EditorSWSH(GameManagerSWSH rom) => ROM = rom;
 
     [EditorCallable(EditorCategory.None, editorName: "Candy Builder", toolset: EditorToolset.RoyalSword, description: "Royal Sword Candy Builder: create, validate, and export the Royal Candy item/patch workflow.")]
-    public void RoyalSwordCandyBuilder() => ShowRoyalSwordToolPlaceholder(
-        "Royal Sword Candy Builder",
-        "Planned workflow for Royal Candy item setup, text, shop availability, ExeFS hooks, cap ladder validation, patch notes, and probe builds.");
+    public void RoyalSwordCandyBuilder()
+    {
+        using var form = new RoyalSwordCandyBuilderForm(ROM.PathRomFS, ROM.PathExeFS);
+        form.ShowDialog();
+    }
 
     [EditorCallable(EditorCategory.None, editorName: "Flagwork", toolset: EditorToolset.RoyalSword, description: "Royal Sword Flagwork Browser: search and inspect Sword/Shield flagwork hash tables.")]
     public void RoyalSwordFlagwork()
@@ -91,11 +93,6 @@ internal class EditorSWSH : EditorBase
     {
         using var form = new RoyalSwordPatchManagerForm(ROM.PathExeFS);
         form.ShowDialog();
-    }
-
-    private static void ShowRoyalSwordToolPlaceholder(string title, string purpose)
-    {
-        WinFormsUtil.Alert(title, purpose, "The dashboard entry is wired up; the full editor will be implemented in a later Royal Sword integration step.");
     }
 
     public void EditCommon()
