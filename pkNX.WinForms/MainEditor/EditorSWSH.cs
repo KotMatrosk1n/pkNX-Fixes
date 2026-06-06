@@ -107,6 +107,7 @@ internal class EditorSWSH : EditorBase
             editor.Save();
     }
 
+    [EditorCallable(EditorCategory.None, editorName: "Dialogue Map", toolset: EditorToolset.RoyalSword, description: "Royal Sword Dialogue Map: inspect and edit common/story dialogue with script context.")]
     public void EditDialogueMap()
     {
         var common = ROM.GetFilteredFolder(GameFile.GameText, z => Path.GetExtension(z) == ".dat");
