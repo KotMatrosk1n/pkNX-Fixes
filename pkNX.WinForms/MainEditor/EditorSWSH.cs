@@ -41,9 +41,15 @@ internal class EditorSWSH : EditorBase
     }
 
     [EditorCallable(EditorCategory.None, editorName: "Story Events", toolset: EditorToolset.RoyalSword, description: "Royal Sword Story Event Inspector: connect main-event text, AMX scripts, and flag/work references.")]
-    public void RoyalSwordStoryEvents() => ShowRoyalSwordToolPlaceholder(
-        "Royal Sword Story Event Inspector",
-        "Planned inspector for main_event message text, script metadata, AMX references, adjacent events, and cap marker candidates.");
+    public void RoyalSwordStoryEvents()
+    {
+        var script = ROM.GetFilteredFolder(GameFile.StoryText, z => Path.GetExtension(z) == ".dat");
+        var config = new TextConfig(ROM.Game);
+        var scriptText = new TextContainer(script, config);
+        using var form = new RoyalSwordStoryEventInspector(scriptText, ROM.PathRomFS);
+        form.ShowDialog();
+        script.CancelEdits();
+    }
 
     [EditorCallable(EditorCategory.None, editorName: "Trainer Map", toolset: EditorToolset.RoyalSword, description: "Royal Sword Trainer Progress Mapper: correlate trainers with placement, story events, and progress markers.")]
     public void RoyalSwordTrainerMap() => ShowRoyalSwordToolPlaceholder(
