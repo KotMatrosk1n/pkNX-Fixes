@@ -8,6 +8,7 @@ using pkNX.Game;
 using pkNX.Structures;
 using pkNX.Structures.FlatBuffers;
 using pkNX.Structures.FlatBuffers.Arceus;
+using pkNX.WinForms;
 using EncounterSlot = pkNX.Structures.FlatBuffers.Arceus.EncounterSlot;
 using Species = pkNX.Structures.Species;
 
@@ -30,6 +31,7 @@ public partial class MapViewer8a : Form
         Settings = FlatBufferConverter.DeserializeFrom<AreaSettingsTable>(bin_settings);
 
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Map, CB_Species);
 
         Areas = ResidentAreaSet.AreaNames.Select(z => AreaInstance.Create(Resident, z, Settings)).ToArray();
         CB_Map.Items.AddRange(Areas.Select(z => z.ParentArea?.FriendlyAreaName ?? z.FriendlyAreaName).ToArray());

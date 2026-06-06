@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using pkNX.Game;
 using pkNX.Structures;
 using pkNX.Structures.FlatBuffers;
+using pkNX.WinForms;
 using static pkNX.WinForms.LumioseFieldIndex;
 using Point = pkNX.WinForms.TransformScale;
 
@@ -40,6 +41,7 @@ public partial class MapViewer9a : Form
         Map = Maps.Overworld;
 
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_AreaIndex, CB_Map, CB_Species);
 
         var species = GetSpeciesList(rom, language);
 

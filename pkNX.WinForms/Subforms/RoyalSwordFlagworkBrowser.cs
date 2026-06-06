@@ -45,6 +45,7 @@ public sealed class RoyalSwordFlagworkBrowser : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, TableFilter);
         LoadEntries();
         RefreshTableFilter();
         RefreshGrid();

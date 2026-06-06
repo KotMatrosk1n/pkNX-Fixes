@@ -49,6 +49,7 @@ public sealed class RoyalSwordStoryEventInspector : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, ScopeFilter);
         BuildEntries();
         RefreshGrid();
     }

@@ -401,6 +401,10 @@ public partial class BTTE : Form
         RegisterSearch(CB_TrainerID);
         RegisterSearch(CB_Trainer_Class);
         RegisterSearch(CB_Money);
+        RegisterSearch(CB_Mode);
+        RegisterSearch(CB_Form);
+        RegisterSearch(CB_Ability);
+        RegisterSearch(CB_Gender);
         if (Game.Info.SWSH)
             RegisterSearch(CB_ClassBall);
     }

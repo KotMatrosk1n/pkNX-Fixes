@@ -77,6 +77,7 @@ public sealed class RoyalSwordSaveInspector : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, ScopeFilter);
         EvaluateMilestones(null);
         RefreshGrid();
     }

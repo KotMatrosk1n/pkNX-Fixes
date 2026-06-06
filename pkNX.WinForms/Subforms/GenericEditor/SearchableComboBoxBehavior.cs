@@ -2,20 +2,24 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
 namespace pkNX.WinForms;
 
 public sealed class SearchableComboBoxBehavior
 {
-    private readonly Form Owner;
+    private static readonly ConditionalWeakTable<ComboBox, SearchableComboBoxBehavior> RegisteredCombos = new();
+    private static readonly ConditionalWeakTable<DataGridView, GridComboRegistration> RegisteredGrids = new();
+
+    private readonly Control OwnerScope;
     private readonly ComboBox Combo;
     private readonly SearchListBox SearchList = new();
     private bool UpdatingText;
 
-    public SearchableComboBoxBehavior(Form owner, ComboBox combo)
+    public SearchableComboBoxBehavior(Control owner, ComboBox combo)
     {
-        Owner = owner;
+        OwnerScope = owner;
         Combo = combo;
 
         Combo.DropDownStyle = ComboBoxStyle.DropDown;
@@ -29,7 +33,7 @@ public sealed class SearchableComboBoxBehavior
         Combo.DropDown += (_, _) =>
         {
             var closeCustomDropDown = SearchList.Visible;
-            Owner.BeginInvoke((MethodInvoker)(() =>
+            BeginInvokeOnUi(() =>
             {
                 Combo.DroppedDown = false;
                 if (closeCustomDropDown)
@@ -40,18 +44,18 @@ public sealed class SearchableComboBoxBehavior
                 }
 
                 ShowDropDownList();
-            }));
+            });
         };
         Combo.DropDownClosed += (_, _) => Combo.DroppedDown = false;
         Combo.KeyDown += Combo_KeyDown;
-        Combo.Leave += (_, _) => Owner.BeginInvoke((MethodInvoker)(() =>
+        Combo.Leave += (_, _) => BeginInvokeOnUi(() =>
         {
             if (SearchList.Focused)
                 return;
 
             RestoreSelectedText();
             HideSearchList();
-        }));
+        });
 
         SearchList.BackColor = WinFormsTheme.InputBackground;
         SearchList.BorderStyle = BorderStyle.FixedSingle;
@@ -66,14 +70,26 @@ public sealed class SearchableComboBoxBehavior
         SearchList.MouseMove += SearchList_MouseMove;
         SearchList.BeforeMouseWheel += SearchList_BeforeMouseWheel;
         SearchList.KeyDown += SearchList_KeyDown;
-        SearchList.Leave += (_, _) => Owner.BeginInvoke((MethodInvoker)(() =>
+        SearchList.Leave += (_, _) => BeginInvokeOnUi(() =>
         {
             if (Combo.Focused)
                 return;
 
             HideSearchList();
-        }));
+        });
     }
+
+    public static void Register(Control owner, params ComboBox[] comboBoxes)
+    {
+        foreach (var comboBox in comboBoxes)
+        {
+            if (comboBox != null)
+                _ = RegisteredCombos.GetValue(comboBox, combo => new SearchableComboBoxBehavior(owner, combo));
+        }
+    }
+
+    public static void RegisterGrid(DataGridView grid)
+        => _ = RegisteredGrids.GetValue(grid, static gridControl => new GridComboRegistration(gridControl));
 
     private void Combo_KeyDown(object? sender, KeyEventArgs e)
     {
@@ -229,8 +245,9 @@ public sealed class SearchableComboBoxBehavior
 
     private void ShowSearchList(string text, IReadOnlyList<ComboEntry> matches, int preferredSelectionIndex = 0)
     {
-        if (SearchList.Parent != Owner)
-            Owner.Controls.Add(SearchList);
+        var owner = GetPopupOwner();
+        if (SearchList.Parent != owner)
+            owner.Controls.Add(SearchList);
 
         SearchList.BeginUpdate();
         SearchList.Items.Clear();
@@ -244,20 +261,65 @@ public sealed class SearchableComboBoxBehavior
             return;
         }
 
-        const int maxVisibleRows = 12;
-        var visibleRows = Math.Min(matches.Count, maxVisibleRows);
-        var screenLocation = Combo.Parent?.PointToScreen(Combo.Location) ?? Owner.PointToScreen(Combo.Location);
-        var location = Owner.PointToClient(new Point(screenLocation.X, screenLocation.Y + Combo.Height));
-        var availableHeight = Math.Max(SearchList.ItemHeight + 2, Owner.ClientSize.Height - location.Y - 4);
-        var height = Math.Min(availableHeight, visibleRows * SearchList.ItemHeight + 2);
-        var width = Math.Min(Math.Max(Combo.Width, Combo.DropDownWidth), Owner.ClientSize.Width - location.X - 4);
-
-        SearchList.Bounds = new Rectangle(location.X, location.Y, Math.Max(Combo.Width, width), height);
+        SearchList.Bounds = GetPopupBounds(owner, Combo, Math.Max(Combo.Width, Combo.DropDownWidth), SearchList.ItemHeight, matches.Count, 12);
         SearchList.Visible = true;
         SearchList.BringToFront();
         var selectedIndex = Math.Clamp(preferredSelectionIndex, 0, matches.Count - 1);
+        var visibleRows = Math.Max(1, SearchList.ClientSize.Height / Math.Max(1, SearchList.ItemHeight));
         SearchList.SelectedIndex = selectedIndex;
         SearchList.TopIndex = Math.Clamp(selectedIndex - visibleRows / 2, 0, Math.Max(0, matches.Count - visibleRows));
+    }
+
+    public static Rectangle GetPopupBounds(Control owner, Control anchor, int preferredWidth, int itemHeight, int itemCount, int maxVisibleRows)
+    {
+        const int margin = 4;
+        var client = owner.ClientSize;
+        var availableWidth = Math.Max(1, client.Width - margin * 2);
+        var minimumWidth = Math.Min(Math.Max(1, anchor.Width), availableWidth);
+        var width = Math.Clamp(Math.Max(anchor.Width, preferredWidth), minimumWidth, availableWidth);
+
+        var anchorScreen = anchor.RectangleToScreen(anchor.ClientRectangle);
+        var anchorLocation = owner.PointToClient(anchorScreen.Location);
+        var anchorBounds = new Rectangle(anchorLocation, anchor.Size);
+        var xMax = Math.Max(margin, client.Width - width - margin);
+        var x = Math.Clamp(anchorBounds.Left, margin, xMax);
+
+        var rows = Math.Max(1, Math.Min(itemCount, maxVisibleRows));
+        var minimumHeight = Math.Max(1, itemHeight) + 2;
+        var desiredHeight = Math.Max(minimumHeight, rows * Math.Max(1, itemHeight) + 2);
+        var maxHeight = Math.Max(1, client.Height - margin * 2);
+        var belowSpace = Math.Max(0, client.Height - anchorBounds.Bottom - margin);
+        var aboveSpace = Math.Max(0, anchorBounds.Top - margin);
+        var openBelow = belowSpace >= Math.Min(desiredHeight, minimumHeight) || belowSpace >= aboveSpace;
+        var availableHeight = openBelow ? belowSpace : aboveSpace;
+        var height = Math.Min(desiredHeight, Math.Min(maxHeight, Math.Max(minimumHeight, availableHeight)));
+
+        var y = openBelow ? anchorBounds.Bottom : anchorBounds.Top - height;
+        var yMax = Math.Max(margin, client.Height - height - margin);
+        y = Math.Clamp(y, margin, yMax);
+
+        return new Rectangle(x, y, width, height);
+    }
+
+    private Control GetPopupOwner()
+        => Combo.FindForm() ?? OwnerScope.FindForm() ?? OwnerScope;
+
+    private void BeginInvokeOnUi(MethodInvoker action)
+    {
+        var owner = GetPopupOwner();
+        if (!owner.IsDisposed && owner.IsHandleCreated)
+        {
+            owner.BeginInvoke(action);
+            return;
+        }
+
+        if (!Combo.IsDisposed && Combo.IsHandleCreated)
+        {
+            Combo.BeginInvoke(action);
+            return;
+        }
+
+        action();
     }
 
     private void HideSearchList()
@@ -476,5 +538,22 @@ public sealed class SearchableComboBoxBehavior
     {
         public MouseEventArgs MouseEvent { get; } = mouseEvent;
         public bool Handled { get; set; }
+    }
+
+    private sealed class GridComboRegistration
+    {
+        private readonly DataGridView Grid;
+
+        public GridComboRegistration(DataGridView grid)
+        {
+            Grid = grid;
+            Grid.EditingControlShowing += Grid_EditingControlShowing;
+        }
+
+        private void Grid_EditingControlShowing(object? sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            if (e.Control is ComboBox comboBox)
+                Register((Control?)Grid.FindForm() ?? Grid, comboBox);
+        }
     }
 }

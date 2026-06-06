@@ -9,6 +9,7 @@ using pkNX.Randomization;
 using pkNX.Structures;
 using pkNX.Structures.FlatBuffers;
 using pkNX.Structures.FlatBuffers.Arceus;
+using pkNX.WinForms;
 using static pkNX.Structures.Species;
 using Util = pkNX.Randomization.Util;
 
@@ -42,6 +43,7 @@ public partial class AreaEditor8a : Form
         (AreaIndex, Area) = LoadAreaByName(startingArea);
 
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Area);
 
         PG_RandSettings.SelectedObject = EditUtil.Settings.Species;
 

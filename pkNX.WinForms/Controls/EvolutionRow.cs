@@ -14,6 +14,7 @@ public partial class EvolutionRow : UserControl
 
         CB_Method.Items.AddRange(EvoMethods);
         CB_Species.Items.AddRange(species);
+        SearchableComboBoxBehavior.Register(this, CB_Method, CB_Species, CB_Arg);
 
         CB_Species.SelectedIndexChanged += (_, __) => ChangeSpecies(CB_Species.SelectedIndex, (int)NUD_Form.Value);
         NUD_Form.ValueChanged += (_, __) => ChangeSpecies(CB_Species.SelectedIndex, (int)NUD_Form.Value);

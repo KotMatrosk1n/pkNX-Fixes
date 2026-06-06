@@ -17,6 +17,7 @@ public partial class StatEditor : UserControl
         tb_ev = [TB_HPEV, TB_ATKEV, TB_DEFEV, TB_SPEEV, TB_SPAEV, TB_SPDEV];
         tb_av = [TB_HPAV, TB_ATKAV, TB_DEFAV, TB_SPEAV, TB_SPAAV, TB_SPDAV];
         labarray = [Label_ATK, Label_DEF, Label_SPE, Label_SPA, Label_SPD];
+        SearchableComboBoxBehavior.Register(this, CB_HPType, CB_DynamaxLevel);
     }
 
     public void Initialize(string[] types)

@@ -526,17 +526,11 @@ public sealed partial class GenericEditor<T> : Form where T : class
             return;
         }
 
-        const int maxVisibleRows = 12;
-        var visibleRows = Math.Min(matches.Count, maxVisibleRows);
-        var screenLocation = CB_EntryName.Parent?.PointToScreen(CB_EntryName.Location) ?? PointToScreen(CB_EntryName.Location);
-        var location = PointToClient(new Point(screenLocation.X, screenLocation.Y + CB_EntryName.Height));
-        var availableHeight = Math.Max(EntrySearchList.ItemHeight + 2, ClientSize.Height - location.Y - 4);
-        var height = Math.Min(availableHeight, visibleRows * EntrySearchList.ItemHeight + 2);
-
-        EntrySearchList.Bounds = new Rectangle(location.X, location.Y, CB_EntryName.Width, height);
+        EntrySearchList.Bounds = SearchableComboBoxBehavior.GetPopupBounds(this, CB_EntryName, CB_EntryName.Width, EntrySearchList.ItemHeight, matches.Count, 12);
         EntrySearchList.Visible = true;
         EntrySearchList.BringToFront();
         var selectedIndex = Math.Clamp(preferredSelectionIndex, 0, matches.Count - 1);
+        var visibleRows = Math.Max(1, EntrySearchList.ClientSize.Height / Math.Max(1, EntrySearchList.ItemHeight));
         EntrySearchList.SelectedIndex = selectedIndex;
         EntrySearchList.TopIndex = Math.Clamp(selectedIndex - visibleRows / 2, 0, Math.Max(0, matches.Count - visibleRows));
     }
