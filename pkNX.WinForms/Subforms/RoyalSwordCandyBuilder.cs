@@ -23,7 +23,6 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private const int CandyDescriptionWrapColumn = 48;
     private const int CandyDescriptionMaxLines = 3;
     private const string DefaultCandyDescriptionText = "Raises a Pokemon's level up to the current allowed cap";
-    private const int RequiredSwSh132FileCount = 50517;
     private const int DefaultStartingCap = 10;
 
     private readonly string RomFsPath;
@@ -189,20 +188,10 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         results.Add(new("Pass", "Project", "exefs/main", "ExeFS main and main.npdm found."));
 
         var fileCount = Directory.GetFiles(RomFsPath, "*", SearchOption.AllDirectories).Length;
-        log.Add($"RomFS file count: {fileCount:N0}");
-        if (fileCount != RequiredSwSh132FileCount)
-        {
-            var missing = fileCount switch
-            {
-                41702 => "base Sword/Shield dump detected; update 1.3.2 and both DLC content sets are missing.",
-                41951 => "Sword/Shield 1.1.0-era dump detected; Isle of Armor, Crown Tundra, and update 1.3.2 content are missing.",
-                46867 => "Isle of Armor-era dump detected; Crown Tundra and final 1.3.2 content are missing.",
-                50494 => "Crown Tundra-era dump detected, but the expected 1.3.2 file count was not found.",
-                _ => $"unexpected RomFS file count {fileCount:N0}; expected {RequiredSwSh132FileCount:N0} for the supported Sword/Shield 1.3.2 full-DLC dump.",
-            };
-            return Fail("Project", missing, results, log);
-        }
-        results.Add(new("Pass", "Project", "romfs", "Sword/Shield 1.3.2 full-DLC RomFS file count matched."));
+        log.Add($"RomFS file count: {fileCount:N0} (informational only)");
+
+        if (!ValidateRequiredRoyalCandyInputs(results, log, out var inputFailure))
+            return Fail("Project", inputFailure, results, log);
 
         var detectedFlavor = DetectedGame switch
         {
@@ -221,8 +210,62 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             log.Add("Detected version: unknown");
         }
 
-        return new(true, detectedFlavor, "Ready: Sword/Shield 1.3.2 full-DLC dump detected. Choose a Royal Candy mode.", results, log);
+        return new(true, detectedFlavor, "Ready: required Sword/Shield Royal Candy inputs detected. Choose a Royal Candy mode.", results, log);
     }
+
+    private bool ValidateRequiredRoyalCandyInputs(List<BuildResult> results, List<string> log, out string failure)
+    {
+        foreach (var relativePath in GetRequiredRomFsFiles())
+        {
+            var sourcePath = GetRomFsPath(relativePath);
+            if (!File.Exists(sourcePath))
+            {
+                failure = $"Missing romfs/{relativePath}. Royal Candy cannot be built without this source file.";
+                return false;
+            }
+
+            log.Add($"Required file found: romfs/{relativePath}");
+        }
+        results.Add(new("Pass", "Project", "romfs", "Required Royal Candy RomFS files found."));
+
+        var messageRoot = GetRomFsPath(RoyalCandyLayeredFsBuilder.MessageRoot);
+        if (!Directory.Exists(messageRoot))
+        {
+            failure = $"Missing romfs/{RoyalCandyLayeredFsBuilder.MessageRoot}. Royal Candy text cannot be patched.";
+            return false;
+        }
+
+        var languageTextSetCount = Directory.EnumerateDirectories(messageRoot)
+            .Select(directory => Path.Combine(directory, "common"))
+            .Count(commonDirectory =>
+                Directory.Exists(commonDirectory)
+                && File.Exists(Path.Combine(commonDirectory, RoyalCandyLayeredFsBuilder.ItemInfoFile))
+                && Directory.EnumerateFiles(commonDirectory, "itemname*.dat").Any());
+        if (languageTextSetCount == 0)
+        {
+            failure = $"Missing item text files under romfs/{RoyalCandyLayeredFsBuilder.MessageRoot}. Royal Candy needs at least one common/iteminfo.dat and itemname*.dat set.";
+            return false;
+        }
+
+        results.Add(new("Pass", "Project", "romfs/bin/message", $"Found {languageTextSetCount:N0} Royal Candy item text language set(s)."));
+        log.Add($"Royal Candy item text language sets found: {languageTextSetCount:N0}");
+
+        failure = string.Empty;
+        return true;
+    }
+
+    private static string[] GetRequiredRomFsFiles() =>
+    [
+        RoyalCandyLayeredFsBuilder.ItemPath,
+        RoyalCandyLayeredFsBuilder.ItemHashPath,
+        RoyalCandyLayeredFsBuilder.ShopPath,
+        RoyalCandyLayeredFsBuilder.NestDataPath,
+        RoyalCandyLayeredFsBuilder.PlacementPath,
+        RoyalSwordScriptAmxPatcher.BagEventScriptPath,
+    ];
+
+    private string GetRomFsPath(string relativePath) =>
+        Path.Combine(RomFsPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
     private static RoyalCandyProjectStatus Fail(string area, string message, List<BuildResult> results, List<string> log)
     {
@@ -238,7 +281,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             return false;
 
         SelectedGame = dialog.SelectedGame;
-        ProjectStatusLabel.Text = $"Ready: {SelectedGame} 1.3.2 full-DLC dump selected. Choose a Royal Candy mode.";
+        ProjectStatusLabel.Text = $"Ready: {SelectedGame} Royal Candy inputs selected. Choose a Royal Candy mode.";
         return true;
     }
 
@@ -654,13 +697,13 @@ internal static class RoyalCandyLayeredFsBuilder
     private const byte KeyItemTypeByte = KeyItemType;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
     private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
-    private const string ItemPath = "bin/pml/item/item.dat";
-    private const string ItemHashPath = "bin/pml/item/item_hash_to_index.dat";
-    private const string ShopPath = "bin/appli/shop/bin/shop_data.bin";
-    private const string NestDataPath = "bin/archive/field/resident/data_table.gfpak";
-    private const string PlacementPath = "bin/archive/field/resident/placement.gfpak";
-    private const string MessageRoot = "bin/message";
-    private const string ItemInfoFile = "iteminfo.dat";
+    internal const string ItemPath = "bin/pml/item/item.dat";
+    internal const string ItemHashPath = "bin/pml/item/item_hash_to_index.dat";
+    internal const string ShopPath = "bin/appli/shop/bin/shop_data.bin";
+    internal const string NestDataPath = "bin/archive/field/resident/data_table.gfpak";
+    internal const string PlacementPath = "bin/archive/field/resident/placement.gfpak";
+    internal const string MessageRoot = "bin/message";
+    internal const string ItemInfoFile = "iteminfo.dat";
     private const string RoyalCandyName = "Royal Candy";
     private const string RoyalCandyPluralName = "Royal Candies";
 

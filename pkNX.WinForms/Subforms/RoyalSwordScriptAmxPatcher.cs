@@ -8,6 +8,7 @@ namespace pkNX.WinForms;
 
 internal static class RoyalSwordScriptAmxPatcher
 {
+    internal const string BagEventScriptPath = "bin/script/amx/main_event_0020.amx";
     private const ushort PawnMagic16 = 0xF1E2;
     private const ushort PawnMagic32 = 0xF1E0;
     private const ushort PawnMagic64 = 0xF1E1;
@@ -20,7 +21,6 @@ internal static class RoyalSwordScriptAmxPatcher
 
     public static IReadOnlyList<string> PatchBagEventRoyalCandyGrant(string romFsPath, string outputRoot, int candidateId)
     {
-        const string inputRelativePath = "bin/script/amx/main_event_0020.amx";
         const string outputRelativePath = "romfs/bin/script/amx/main_event_0020.amx";
         const uint duplicatedNativeHash = 0x0473BE4E;
         const uint addItemNativeHash = 0x8D631FFE;
@@ -34,7 +34,7 @@ internal static class RoyalSwordScriptAmxPatcher
         if (candidateId is < 0 or > 0xFFFF)
             throw new ArgumentOutOfRangeException(nameof(candidateId), "Royal Candy Bag-event grant item id must fit the AMX patch range.");
 
-        var inputPath = Path.Combine(romFsPath, PathFromSlash(inputRelativePath));
+        var inputPath = Path.Combine(romFsPath, PathFromSlash(BagEventScriptPath));
         if (!File.Exists(inputPath))
             throw new FileNotFoundException("Could not find Bag event AMX script.", inputPath);
 
@@ -42,20 +42,20 @@ internal static class RoyalSwordScriptAmxPatcher
         var header = RoyalSwordAmxHeader.Read(data);
         var cellSize = GetPawnCellSize(header.Magic);
         if (cellSize != 8)
-            throw new InvalidDataException($"Expected 64-bit AMX cells in {inputRelativePath}; found {cellSize * 8}-bit cells.");
+            throw new InvalidDataException($"Expected 64-bit AMX cells in {BagEventScriptPath}; found {cellSize * 8}-bit cells.");
         if ((header.Flags & PawnFlagCompact) == 0)
-            throw new InvalidDataException($"{inputRelativePath} is not compact AMX; the Bag-event patcher expects the vanilla compact layout.");
+            throw new InvalidDataException($"{BagEventScriptPath} is not compact AMX; the Bag-event patcher expects the vanilla compact layout.");
 
         var nativeHashes = ReadNativeHashes(data, header);
-        ExpectNative(nativeHashes, freedNativeIndex, duplicatedNativeHash, inputRelativePath);
-        ExpectNative(nativeHashes, duplicateNativeIndex, duplicatedNativeHash, inputRelativePath);
+        ExpectNative(nativeHashes, freedNativeIndex, duplicatedNativeHash, BagEventScriptPath);
+        ExpectNative(nativeHashes, duplicateNativeIndex, duplicatedNativeHash, BagEventScriptPath);
 
         var expanded = ExpandAmxIfNeeded(data, header, cellSize);
-        VerifyCompactRoundTrip(data, header, expanded, cellSize, inputRelativePath);
+        VerifyCompactRoundTrip(data, header, expanded, cellSize, BagEventScriptPath);
 
         var codeCells = ReadCells(expanded, header.Cod, header.Dat - header.Cod, cellSize);
         if (header.Publics != header.Natives)
-            throw new InvalidDataException($"{inputRelativePath} has public entries; refusing to append the Bag grant without public-table analysis.");
+            throw new InvalidDataException($"{BagEventScriptPath} has public entries; refusing to append the Bag grant without public-table analysis.");
 
         ExpectCell(codeCells, duplicateNativeCallCell, OpSysreqN, "duplicate native SYSREQ.N");
         ExpectCell(codeCells, duplicateNativeCallCell + 1, freedNativeIndex, "duplicate native index");
@@ -102,7 +102,7 @@ internal static class RoyalSwordScriptAmxPatcher
 
         var patched = BuildCompactAmx(patchedPrefix, patchedHeader, patchedExpanded, cellSize);
         BinaryPrimitives.WriteInt32LittleEndian(patchedExpanded.AsSpan(0), patched.Length);
-        VerifyExpandedMemory(patched, patchedExpanded, inputRelativePath);
+        VerifyExpandedMemory(patched, patchedExpanded, BagEventScriptPath);
 
         var outputPath = Path.Combine(outputRoot, PathFromSlash(outputRelativePath));
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);

@@ -52,3 +52,8 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - unlimited mode generates the Royal Candy item, text, source cleanup, Bag-event grant, and ExeFS infinite-use/virtual-count/UI-route patches;
   - custom-limit mode generates the same base output plus the story-cap use gate, quantity max, clamp bypass, and shared cap helper patches;
   - both modes report 1 shop removal, 18 raid reward replacements, and 10 placement pickup replacements.
+- Replaced the Royal Candy launch file-count fingerprint with direct required-input validation:
+  - RomFS file count is now logged as informational only;
+  - the editor checks for the item table, item hash table, shop data, raid/placement archives, Bag-event AMX script, ExeFS `main`, and `main.npdm`;
+  - message validation now requires at least one language `common` folder with `iteminfo.dat` and `itemname*.dat`;
+  - a 50,494-file `C:\SW` dump passed the two-mode builder probe after the validation change.
