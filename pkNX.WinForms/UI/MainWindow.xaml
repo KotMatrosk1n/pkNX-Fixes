@@ -68,8 +68,7 @@
                         </MenuItem.Icon>
                     </MenuItem>
                     <MenuItem x:Name="Menu_Current" Header="Open Game Folder" Click="Menu_Current_Click"/>
-                    <MenuItem x:Name="Menu_DisplayAdvanced" Header="Display Advanced Editors" Click="Menu_DisplayAdvanced_Click"/>
-                    <MenuItem x:Name="Menu_RoyalSwordTools" Header="Royal Sword Tools" Click="Menu_RoyalSwordTools_Click"/>
+                    <MenuItem x:Name="Menu_DisplayRoyalEditors" Header="Display Royal Editors" Click="Menu_DisplayRoyalEditors_Click"/>
                 </MenuItem>
             </Menu>
 
