@@ -17,6 +17,7 @@ public partial class BTTE : Form
 {
     private const int TrainerHeaderHeight = 42;
     private static readonly string[] DefaultFormNames = Enumerable.Range(0, 32).Select(i => i.ToString()).ToArray();
+    private static readonly object[] TrainerBallNames = GetTrainerBallNames();
 
     private LearnsetRandomizer? learn;
     private readonly string[][] AltForms;
@@ -42,6 +43,7 @@ public partial class BTTE : Form
 
     private readonly CheckBox[] AIBits;
     private readonly List<SearchableComboBoxBehavior> SearchableCombos = [];
+    private readonly HashSet<ComboBox> SearchableRegistered = [];
     private readonly Dictionary<TeamSpriteKey, Image> TeamSpriteCache = [];
     private const sbyte TrainerClassOwnershipUnknown = -1;
     private const sbyte TrainerClassOwnershipShared = 0;
@@ -102,7 +104,6 @@ public partial class BTTE : Form
 
         ApplyTrainerEditorTheme();
         ConfigureSearchableDropdowns();
-        ConfigureTrainerToolTips();
         RegisterTrainerItemLazyLoads();
         CB_Money.SelectedIndexChanged += (_, _) =>
         {
@@ -118,6 +119,7 @@ public partial class BTTE : Form
         };
         Shown += (_, _) => BeginInvoke((MethodInvoker)(() =>
         {
+            ConfigureTrainerToolTips();
             CB_TrainerID.Focus();
             CB_TrainerID.SelectAll();
         }));
@@ -239,7 +241,7 @@ public partial class BTTE : Form
         CB_ClassBall.DropDownStyle = ComboBoxStyle.DropDownList;
         CB_ClassBall.FormattingEnabled = true;
         CB_ClassBall.Name = nameof(CB_ClassBall);
-        CB_ClassBall.Items.AddRange(GetTrainerBallNames());
+        CB_ClassBall.Items.AddRange(TrainerBallNames);
         CB_ClassBall.SelectedIndexChanged += (_, _) =>
         {
             if (!loading)
@@ -401,21 +403,15 @@ public partial class BTTE : Form
         RegisterSearch(CB_Money);
         if (Game.Info.SWSH)
             RegisterSearch(CB_ClassBall);
-        RegisterSearch(CB_Species);
-        RegisterSearch(CB_Item);
-        RegisterSearch(CB_Item_1);
-        RegisterSearch(CB_Item_2);
-        RegisterSearch(CB_Item_3);
-        RegisterSearch(CB_Item_4);
-        RegisterSearch(CB_Gift);
-        RegisterSearch(CB_Move1);
-        RegisterSearch(CB_Move2);
-        RegisterSearch(CB_Move3);
-        RegisterSearch(CB_Move4);
-        RegisterSearch(CB_Nature);
     }
 
-    private void RegisterSearch(ComboBox comboBox) => SearchableCombos.Add(new SearchableComboBoxBehavior(this, comboBox));
+    private void RegisterSearch(ComboBox comboBox)
+    {
+        if (!SearchableRegistered.Add(comboBox))
+            return;
+
+        SearchableCombos.Add(new SearchableComboBoxBehavior(this, comboBox));
+    }
 
     private void ConfigureTrainerToolTips()
     {
@@ -503,6 +499,7 @@ public partial class BTTE : Form
         for (var i = 0; i < combos.Length; i++)
         {
             SetComboItems(combos[i], itemlist);
+            RegisterSearch(combos[i]);
             SetTrainerItemComboValue(combos[i], values[i]);
         }
     }
@@ -549,6 +546,9 @@ public partial class BTTE : Form
         SetComboItems(CB_Species, specieslist);
         SetComboItems(CB_Item, itemlist);
         SetComboItems(CB_Nature, natures.Take(25).Cast<object>().ToArray());
+        RegisterSearch(CB_Species);
+        RegisterSearch(CB_Item);
+        RegisterSearch(CB_Nature);
         CB_Gender.Items.Add("- / Genderless/Random");
         CB_Gender.Items.Add("♂ / Male");
         CB_Gender.Items.Add("♀ / Female");
@@ -570,6 +570,10 @@ public partial class BTTE : Form
         SetComboItems(CB_Move2, movelist);
         SetComboItems(CB_Move3, movelist);
         SetComboItems(CB_Move4, movelist);
+        RegisterSearch(CB_Move1);
+        RegisterSearch(CB_Move2);
+        RegisterSearch(CB_Move3);
+        RegisterSearch(CB_Move4);
         MoveListLoaded = true;
     }
 
@@ -618,10 +622,16 @@ public partial class BTTE : Form
         SetMoneyItemsForLevel(highestLevel);
     }
 
+    private void UpdateMoneyItemsForTeam(IList<TrainerPoke> team)
+    {
+        var highestLevel = GetHighestTeamLevel(team);
+        SetMoneyItemsForLevel(highestLevel);
+    }
+
     private void UpdateMoneyToolTip()
     {
         var rate = Math.Max(0, CB_Money.SelectedIndex);
-        var highestLevel = GetHighestTeamLevel(entry);
+        var highestLevel = CB_Money.Tag is int level ? level : GetHighestTeamLevel(entry);
         var payout = GetTrainerPayout(highestLevel, rate);
         TrainerToolTip.SetToolTip(
             CB_Money,
@@ -652,8 +662,11 @@ public partial class BTTE : Form
         if ((uint)trainerIndex >= (uint)Trainers.Length)
             return 0;
 
-        return Trainers[trainerIndex].Team.Select(z => z.Level).DefaultIfEmpty(0).Max();
+        return GetHighestTeamLevel(Trainers[trainerIndex].Team);
     }
+
+    private static int GetHighestTeamLevel(IList<TrainerPoke> team) =>
+        team.Count == 0 ? 0 : team.Max(z => z.Level);
 
     private static int GetTrainerPayout(int highestLevel, int rate) => highestLevel * rate * 4;
 
@@ -750,7 +763,7 @@ public partial class BTTE : Form
 
     private void RefreshMoneyDisplayForCurrentTrainer()
     {
-        UpdateMoneyItemsForTrainer(entry);
+        UpdateMoneyItemsForTeam(Trainers[entry].Team);
         UpdateMoneyToolTip();
     }
 
@@ -888,8 +901,8 @@ public partial class BTTE : Form
         SuspendTrainerLayout();
         try
         {
-            UpdateMoneyItemsForTrainer(entry);
             PopulateFieldsTrainer(tr.Self);
+            UpdateMoneyItemsForTeam(tr.Team);
             PopulateTeam(tr.Team);
             UpdateMoneyToolTip();
         }
