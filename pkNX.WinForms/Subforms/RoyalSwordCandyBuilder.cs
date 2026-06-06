@@ -807,12 +807,13 @@ internal static class RoyalCandyLayeredFsBuilder
             "",
         };
 
-        var existingRoyalCandy = DetectExistingRoyalCandy(options.OutputPath);
+        var existingRoyalCandy = DetectExistingRoyalCandy(options);
         if (existingRoyalCandy is not null)
         {
-            var message = $"Existing Royal Candy patch detected in the selected mod folder: {existingRoyalCandy}. Remove that Royal Candy output before building a new one.";
+            var message = $"Existing Royal Candy patch detected in the selected mod folder: {existingRoyalCandy.Description}. Remove that Royal Candy output before building a new one.";
             results.Add(new("Fail", "Preflight", "exefs/main", message));
             notes.Add("- " + message);
+            notes.AddRange(existingRoyalCandy.Details.Select(detail => "  - " + detail));
             return new(false, message, results, notes);
         }
 
@@ -2012,49 +2013,245 @@ internal static class RoyalCandyLayeredFsBuilder
             names.Add(Path.GetFileName(file));
     }
 
-    private static string? DetectExistingRoyalCandy(string outputRoot)
+    private static RoyalCandyInstallScan? DetectExistingRoyalCandy(RoyalCandyBuildOptions options)
     {
-        var readmePath = Path.Combine(outputRoot, "README.md");
-        if (File.Exists(readmePath) && TryDescribeRoyalCandyReadme(readmePath, out var readmeDescription))
-            return readmeDescription;
+        var layeredMainPath = GetLayeredFsExeFsPath(options, "main");
+        if (!File.Exists(layeredMainPath))
+            return null;
 
-        var notesPath = Path.Combine(outputRoot, "exefs", "royal_candy_ui_hook_patch_notes.txt");
-        if (File.Exists(notesPath))
-            return "unknown mode/version; ExeFS Royal Candy notes were found";
+        try
+        {
+            var nso = new NSO(File.ReadAllBytes(layeredMainPath));
+            if (!nso.Header.Valid)
+                return null;
 
-        return null;
+            return DetectExistingRoyalCandyInText(nso.DecompressedText, options);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            return null;
+        }
     }
 
-    private static bool TryDescribeRoyalCandyReadme(string readmePath, out string description)
+    private static RoyalCandyInstallScan? DetectExistingRoyalCandyInText(byte[] text, RoyalCandyBuildOptions options)
     {
-        var lines = File.ReadAllLines(readmePath);
-        if (!lines.Any(z => z.Contains("Royal Candy Patch", StringComparison.OrdinalIgnoreCase)))
+        var details = new List<string>();
+        if (HasRoyalCandyExpCandyBypass(text))
+            details.Add("Exp Candy XL amount bypass");
+        if (HasRoyalCandyInfiniteUsePatch(text, options.ItemId))
+            details.Add("non-consumption item-use hook");
+        if (HasRoyalCandyVirtualOwnershipPatch(text, options.ItemId))
+            details.Add("virtual ownership hook");
+        if (HasRoyalCandyVirtualCountPatch(text, options.ItemId))
+            details.Add("virtual count hook");
+        if (HasRoyalCandyUiRoutePatch(text, options.ItemId))
+            details.Add("Rare Candy UI route hook");
+
+        var storyCapDetails = new List<string>();
+        if (HasRoyalCandyDynamicUseGatePatch(text, options.ItemId))
+            storyCapDetails.Add("dynamic use gate");
+        if (HasRoyalCandyDynamicQuantityMaxPatch(text, options.ItemId))
+            storyCapDetails.Add("dynamic quantity max");
+        if (HasRoyalCandyInventoryClampBypass(text, options.ItemId))
+            storyCapDetails.Add("inventory clamp bypass");
+        if (storyCapDetails.Count != 0)
+            details.Add("story cap ladder hooks: " + string.Join(", ", storyCapDetails));
+
+        var commonAnchorCount = details.Count(detail => !detail.StartsWith("story cap ladder", StringComparison.Ordinal));
+        if (commonAnchorCount < 3 && storyCapDetails.Count < 2)
+            return null;
+
+        var mode = storyCapDetails.Count >= 2 ? RoyalCandyBuildMode.CustomLimits : RoyalCandyBuildMode.Unlimited;
+        var game = GetTitleId(options.GameFlavor);
+        var description = $"{mode} for {options.GameFlavor} (detected from layered exefs/main patch anchors in {game})";
+        return new(description, details);
+    }
+
+    private static bool HasRoyalCandyExpCandyBypass(byte[] text)
+    {
+        const int firstRangeCompareOffset = 0x007BC1BC;
+        const int secondRangeCompareOffset = 0x007BC1C4;
+        const int expCandyIndexRegister = 9;
+        return HasInstruction(text, firstRangeCompareOffset, EncodeCmpImmediate(expCandyIndexRegister, 3))
+            && HasInstruction(text, secondRangeCompareOffset, EncodeCmpImmediate(expCandyIndexRegister, 3));
+    }
+
+    private static bool HasRoyalCandyInfiniteUsePatch(byte[] text, int candidateId)
+    {
+        const int quantityMoveOffset = 0x007B1F20;
+        const int resumeOffset = quantityMoveOffset + 4;
+        if (!TryDecodeBranchTarget(text, quantityMoveOffset, out var caveOffset))
+            return false;
+
+        return HasInstruction(text, caveOffset, EncodeCmpImmediate(22, candidateId))
+            && HasInstruction(text, caveOffset + 4, EncodeConditionalSelect32(2, 31, 0, Arm64Condition.EQ))
+            && TryDecodeBranchTarget(text, caveOffset + 8, out var decodedResume)
+            && decodedResume == resumeOffset;
+    }
+
+    private static bool HasRoyalCandyVirtualOwnershipPatch(byte[] text, int candidateId)
+    {
+        const int itemOwnershipFunctionOffset = 0x01420EF0;
+        if (!TryDecodeBranchTarget(text, itemOwnershipFunctionOffset, out var dispatchCaveOffset))
+            return false;
+        if (!TryDecodeConditionalBranchTarget(text, dispatchCaveOffset + 4, Arm64Condition.EQ, out var returnCaveOffset))
+            return false;
+
+        return HasInstruction(text, dispatchCaveOffset, EncodeCmpImmediate(1, candidateId))
+            && HasInstruction(text, returnCaveOffset, EncodeMovzImmediate32(0, 1))
+            && HasInstruction(text, returnCaveOffset + 4, EncodeRet());
+    }
+
+    private static bool HasRoyalCandyVirtualCountPatch(byte[] text, int candidateId)
+    {
+        const int itemCountFunctionOffset = 0x01421090;
+        if (!TryDecodeBranchTarget(text, itemCountFunctionOffset, out var dispatchCaveOffset))
+            return false;
+        if (!TryDecodeConditionalBranchTarget(text, dispatchCaveOffset + 4, Arm64Condition.EQ, out var returnCaveOffset))
+            return false;
+
+        return HasInstruction(text, dispatchCaveOffset, EncodeCmpImmediate(1, candidateId))
+            && HasMovzImmediate32(text, returnCaveOffset, 0, out var virtualCount)
+            && virtualCount > 0
+            && HasInstruction(text, returnCaveOffset + 4, EncodeRet());
+    }
+
+    private static bool HasRoyalCandyUiRoutePatch(byte[] text, int candidateId)
+    {
+        var check = new RareCandyUiCheck(0x007BC1F8, 8, 0x007BC200, 0x007BC2B4);
+        var originalBranchOffset = check.CompareOffset + 4;
+        if (!HasInstruction(text, check.CompareOffset, EncodeCmpImmediate(check.ItemRegister, RareCandyItemId)))
+            return false;
+        if (!TryDecodeConditionalBranchTarget(text, originalBranchOffset, Arm64Condition.NE, out var caveOffset))
+            return false;
+        if (caveOffset == check.FailOffset)
+            return false;
+
+        return HasInstruction(text, caveOffset, EncodeCmpImmediate(check.ItemRegister, candidateId))
+            && TryDecodeConditionalBranchTarget(text, caveOffset + 4, Arm64Condition.EQ, out var passOffset)
+            && passOffset == check.PassOffset
+            && TryDecodeBranchTarget(text, caveOffset + 8, out var failOffset)
+            && failOffset == check.FailOffset;
+    }
+
+    private static bool HasRoyalCandyDynamicUseGatePatch(byte[] text, int candidateId)
+    {
+        const int rareCandyBranchOffset = 0x007BB208;
+        const int nonRareCandyOffset = 0x007BB26C;
+        const int itemRegister = 20;
+        const uint vanillaBranch = 0x54000321;
+        if (HasInstruction(text, rareCandyBranchOffset, vanillaBranch))
+            return false;
+        if (!TryDecodeConditionalBranchTarget(text, rareCandyBranchOffset, Arm64Condition.NE, out var itemCheckCaveOffset))
+            return false;
+
+        return HasInstruction(text, itemCheckCaveOffset, EncodeCmpImmediate(itemRegister, candidateId))
+            && TryDecodeConditionalBranchTarget(text, itemCheckCaveOffset + 4, Arm64Condition.NE, out var decodedNonRareCandy)
+            && decodedNonRareCandy == nonRareCandyOffset
+            && IsBranchInstruction(text, itemCheckCaveOffset + 8);
+    }
+
+    private static bool HasRoyalCandyDynamicQuantityMaxPatch(byte[] text, int candidateId)
+    {
+        const int rareCandyBranchOffset = 0x007BB3C4;
+        const int nonRareCandyOffset = 0x007BB3EC;
+        const int itemRegister = 19;
+        const uint vanillaBranch = 0x54000141;
+        if (HasInstruction(text, rareCandyBranchOffset, vanillaBranch))
+            return false;
+        if (!TryDecodeConditionalBranchTarget(text, rareCandyBranchOffset, Arm64Condition.NE, out var itemCheckCaveOffset))
+            return false;
+
+        return HasInstruction(text, itemCheckCaveOffset, EncodeCmpImmediate(itemRegister, candidateId))
+            && TryDecodeConditionalBranchTarget(text, itemCheckCaveOffset + 4, Arm64Condition.NE, out var decodedNonRareCandy)
+            && decodedNonRareCandy == nonRareCandyOffset
+            && IsBranchInstruction(text, itemCheckCaveOffset + 8);
+    }
+
+    private static bool HasRoyalCandyInventoryClampBypass(byte[] text, int candidateId)
+    {
+        const int clampSelectOffset = 0x007BAF3C;
+        const int resumeOffset = 0x007BAF40;
+        const uint moveSelectedItemToX0 = 0xAA1703E0;
+        if (!TryDecodeBranchTarget(text, clampSelectOffset, out var firstCaveOffset))
+            return false;
+        if (!TryDecodeBranchTarget(text, firstCaveOffset + 8, out var secondCaveOffset))
+            return false;
+
+        return HasInstruction(text, firstCaveOffset, moveSelectedItemToX0)
+            && IsBranchLinkInstruction(text, firstCaveOffset + 4)
+            && HasInstruction(text, secondCaveOffset, EncodeCmpImmediate(0, candidateId))
+            && TryDecodeConditionalBranchTarget(text, secondCaveOffset + 4, Arm64Condition.EQ, out var decodedResume)
+            && decodedResume == resumeOffset;
+    }
+
+    private static bool HasInstruction(byte[] text, int offset, uint expected) =>
+        TryReadInstruction(text, offset, out var actual) && actual == expected;
+
+    private static bool TryReadInstruction(byte[] text, int offset, out uint instruction)
+    {
+        if (offset < 0 || offset > text.Length - 4)
         {
-            description = string.Empty;
+            instruction = 0;
             return false;
         }
 
-        var mode = ReadMarkdownCodeValue(lines, "Mode") ?? "unknown mode";
-        var game = ReadMarkdownCodeValue(lines, "Game") ?? "unknown game";
-        description = $"{mode} for {game}";
+        instruction = BinaryPrimitives.ReadUInt32LittleEndian(text.AsSpan(offset, 4));
         return true;
     }
 
-    private static string? ReadMarkdownCodeValue(IEnumerable<string> lines, string label)
+    private static bool TryDecodeBranchTarget(byte[] text, int sourceOffset, out int targetOffset)
     {
-        var prefix = $"{label}: `";
-        foreach (var line in lines)
-        {
-            if (!line.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
+        targetOffset = 0;
+        if (!TryReadInstruction(text, sourceOffset, out var instruction) || (instruction & 0xFC000000) != 0x14000000)
+            return false;
 
-            var start = prefix.Length;
-            var end = line.IndexOf('`', start);
-            return end > start ? line[start..end] : null;
-        }
-
-        return null;
+        targetOffset = sourceOffset + (SignExtend((int)(instruction & 0x03FFFFFF), 26) << 2);
+        return (uint)targetOffset <= (uint)(text.Length - 4);
     }
+
+    private static bool TryDecodeConditionalBranchTarget(byte[] text, int sourceOffset, Arm64Condition condition, out int targetOffset)
+    {
+        targetOffset = 0;
+        if (!TryReadInstruction(text, sourceOffset, out var instruction) || (instruction & 0xFF000010) != 0x54000000)
+            return false;
+        if ((instruction & 0xF) != (uint)condition)
+            return false;
+
+        targetOffset = sourceOffset + (SignExtend((int)((instruction >> 5) & 0x7FFFF), 19) << 2);
+        return (uint)targetOffset <= (uint)(text.Length - 4);
+    }
+
+    private static bool IsBranchInstruction(byte[] text, int offset) =>
+        TryReadInstruction(text, offset, out var instruction) && (instruction & 0xFC000000) == 0x14000000;
+
+    private static bool IsBranchLinkInstruction(byte[] text, int offset) =>
+        TryReadInstruction(text, offset, out var instruction) && (instruction & 0xFC000000) == 0x94000000;
+
+    private static bool HasMovzImmediate32(byte[] text, int offset, int register, out int immediate)
+    {
+        immediate = 0;
+        if (!TryReadInstruction(text, offset, out var instruction))
+            return false;
+        if ((instruction & 0xFFE0001F) != (0x52800000u | (uint)(register & 0x1F)))
+            return false;
+
+        immediate = (int)((instruction >> 5) & 0xFFFF);
+        return true;
+    }
+
+    private static int SignExtend(int value, int bits)
+    {
+        var shift = 32 - bits;
+        return (value << shift) >> shift;
+    }
+
+    private static string GetTitleId(RoyalCandyGameFlavor gameFlavor) => gameFlavor switch
+    {
+        RoyalCandyGameFlavor.Sword => "0100ABF008968000",
+        RoyalCandyGameFlavor.Shield => "01008DB008C2C000",
+        _ => throw new ArgumentOutOfRangeException(nameof(gameFlavor), gameFlavor, null),
+    };
 
     private static Dictionary<ulong, string> TryReadAhtbDictionary(GFPack pack, string fileName)
     {
@@ -2124,6 +2321,7 @@ internal sealed record RoyalCandyBuildOptions(
 
 internal sealed record RoyalCandyBuildSummary(IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
 internal sealed record RoyalCandyBuildPreflight(bool Passed, string Message, IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
+internal sealed record RoyalCandyInstallScan(string Description, IReadOnlyList<string> Details);
 internal sealed record BuildResult(string Status, string Area, string Output, string Message);
 
 internal enum RoyalCandyBuildMode

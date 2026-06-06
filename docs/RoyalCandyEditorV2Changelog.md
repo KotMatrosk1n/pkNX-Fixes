@@ -64,9 +64,14 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - default output now targets the selected game's title-ID folder (`0100ABF008968000` for Sword, `01008DB008C2C000` for Shield);
   - RomFS, AMX, message, item-hash, shop, raid, placement, and ExeFS reads now prefer files already present in the output LayeredFS folder before falling back to the base dump;
   - the Bag-event AMX patcher now accepts the resolved source script path, allowing it to patch an existing layered script instead of silently ignoring it;
-  - build preflight detects existing Royal Candy output from README/notes and reports the installed mode/game before refusing to stack another Royal Candy patch;
+  - build preflight detects existing Royal Candy output by scanning layered `exefs/main` patch anchors and reports the installed mode/game before refusing to stack another Royal Candy patch;
   - build preflight dry-runs the ExeFS patch against an existing layered `exefs/main` when present and reports conflicts before the warning/confirm step.
 - Re-ran the builder probes after the LayeredFS layering change:
   - fresh unlimited/custom-limit scratch output still generated the expected item/text/source-cleanup/AMX/ExeFS files;
   - existing Royal Candy output was detected as `Unlimited for Sword` and refused before repatching;
   - an existing compatible `exefs/main` overlay was accepted and patched from the overlay source.
+- Replaced note-based installed-patch detection with file-scan detection:
+  - preflight now opens layered `exefs/main`, decompresses the NSO text segment, decodes ARM64 branch targets, and checks for the real Royal Candy hook anchors;
+  - unlimited output is detected from the common ExeFS hooks even if all generated `.txt` and `README.md` files are deleted;
+  - custom-limit output is detected when the common hooks plus story-cap ladder hooks are present;
+  - note-free scratch reruns correctly reported `Unlimited for Sword` and `CustomLimits for Sword` from `exefs/main` alone.
