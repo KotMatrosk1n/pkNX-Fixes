@@ -407,16 +407,16 @@ public partial class MainWindow
             return "RoyalSword~02";
         if (button.Title.Equals("Story Events", StringComparison.OrdinalIgnoreCase))
             return "RoyalSword~03";
-        if (button.Title.Equals("Trainer Map", StringComparison.OrdinalIgnoreCase))
+        if (button.Title.Equals("Dialogue Map", StringComparison.OrdinalIgnoreCase))
             return "RoyalSword~04";
-        if (button.Title.Equals("Save Inspector", StringComparison.OrdinalIgnoreCase))
+        if (button.Title.Equals("Trainer Map", StringComparison.OrdinalIgnoreCase))
             return "RoyalSword~05";
-        if (button.Title.Equals("Patch Manager", StringComparison.OrdinalIgnoreCase))
+        if (button.Title.Equals("Save Inspector", StringComparison.OrdinalIgnoreCase))
             return "RoyalSword~06";
+        if (button.Title.Equals("Patch Manager", StringComparison.OrdinalIgnoreCase))
+            return "RoyalSword~07";
         if (button.Title.Equals("Wild", StringComparison.OrdinalIgnoreCase))
             return "Items~Wild";
-        if (button.Title.Equals("Dialogue Map", StringComparison.OrdinalIgnoreCase))
-            return "Trainers~Dialogue Map";
         return button.Title;
     }
 }
