@@ -107,9 +107,12 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         actionPanel.Controls.Add(UninstallButton, 2, 0);
 
         ConfigureGrid(ResultGrid);
+        var stepColumn = CreateTextColumn("Step", 96);
+        stepColumn.ToolTipText = "Higher numbers are newer; newest events are shown at the top.";
+        ResultGrid.Columns.Add(stepColumn);
         ResultGrid.Columns.Add(CreateTextColumn("Status", 86));
         ResultGrid.Columns.Add(CreateTextColumn("Area", 100));
-        ResultGrid.Columns.Add(CreateTextColumn("Output", 250));
+        ResultGrid.Columns.Add(CreateTextColumn("Output", 230));
         ResultGrid.Columns.Add(new DataGridViewTextBoxColumn
         {
             HeaderText = "Message",
@@ -524,8 +527,32 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private void SetResults(IEnumerable<BuildResult> results)
     {
         ResultGrid.Rows.Clear();
-        foreach (var result in results)
-            ResultGrid.Rows.Add(result.Status, result.Area, result.Output, result.Message);
+
+        var orderedResults = results.ToList();
+        for (var i = orderedResults.Count - 1; i >= 0; i--)
+        {
+            var result = orderedResults[i];
+            ResultGrid.Rows.Add(GetResultStepLabel(i, orderedResults.Count), result.Status, result.Area, result.Output, result.Message);
+        }
+
+        if (ResultGrid.Rows.Count == 0)
+            return;
+
+        ResultGrid.ClearSelection();
+        ResultGrid.Rows[0].Selected = true;
+        ResultGrid.FirstDisplayedScrollingRowIndex = 0;
+    }
+
+    private static string GetResultStepLabel(int zeroBasedIndex, int count)
+    {
+        var step = (zeroBasedIndex + 1).ToString("D" + count.ToString(CultureInfo.InvariantCulture).Length, CultureInfo.InvariantCulture);
+        if (count == 1)
+            return $"{step} latest";
+        if (zeroBasedIndex == count - 1)
+            return $"{step} newest";
+        if (zeroBasedIndex == 0)
+            return $"{step} oldest";
+        return step;
     }
 
     private void ToggleActions(bool enabled)

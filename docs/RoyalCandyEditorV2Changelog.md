@@ -77,6 +77,7 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - note-free scratch reruns correctly reported `Unlimited for Sword` and `CustomLimits for Sword` from `exefs/main` alone.
 - Updated Royal editor usability:
   - the Royal Candy window is larger, its preflight log wraps long executable-scan details, and the result grid wraps long messages instead of cutting them off;
+  - the result grid now displays newest entries first with a step marker so current actions are visually separated from older output;
   - the Customize Royal Candy Limits action now runs preflight before opening the cap editor, so an already-installed Royal Candy output is rejected immediately;
   - the Royal Candy status line now uses simple user-facing blocker text such as `Unlimited Royal Candy already installed.` or `Custom Royal Candy already installed.`;
   - Royal Candy, Flagwork, Story Events, Trainer Map, Save Inspector, Patch Manager, and the Royal Candy dialogs now use the same dark WinForms theme as the existing Royal Dialogue Map editor.
