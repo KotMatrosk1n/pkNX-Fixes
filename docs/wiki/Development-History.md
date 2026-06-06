@@ -1,10 +1,16 @@
 # Development History for the Matroskin pkNX Fork
 
-This page documents the work merged into `KotMatrosk1n/pkNX-Fixes` so far. The goal is to explain what changed, why it changed, how the implementation works, what files were created or modified, and what still needs research.
+This page documents the first major editor-improvement line merged into `KotMatrosk1n/pkNX-Fixes`. The goal is to explain what changed, why it changed, how the implementation works, what files were created or modified, and what still needs research.
 
 The short version is that this fork has been moving pkNX's Sword/Shield editors away from raw generated-object inspection and toward focused tools that understand the game data. A lot of the old editors technically exposed the data, but they exposed it in the shape FlatSharp generated from the FlatBuffer schemas. That meant users saw raw hashes, `Field##` names, integer arrays, duplicate backing fields, and stock WinForms UI behavior. My work has mostly been about putting a translation layer between "how the game stores this" and "how a user needs to edit this without guessing."
 
-This page covers the Matroskin/Codex branch merges from PR #1 through PR #16.
+This page covers the Matroskin branch merges from PR #1 through PR #16. The later Royal editor and Infinite Rare Candy work is large enough that I split it into its own page: [Infinite Rare Candy](Infinite-Rare-Candy.md).
+
+## Wiki Navigation
+
+- [Home](Home.md)
+- [Infinite Rare Candy](Infinite-Rare-Candy.md)
+- [Repository](https://github.com/KotMatrosk1n/pkNX-Fixes)
 
 ## Big Architectural Direction
 
