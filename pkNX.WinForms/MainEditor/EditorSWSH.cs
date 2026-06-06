@@ -87,9 +87,11 @@ internal class EditorSWSH : EditorBase
     }
 
     [EditorCallable(EditorCategory.None, editorName: "Patch Manager", toolset: EditorToolset.RoyalSword, description: "Royal Sword Patch Manager: validate ExeFS patch signatures, offsets, and code-cave usage.")]
-    public void RoyalSwordPatchManager() => ShowRoyalSwordToolPlaceholder(
-        "Royal Sword Patch Manager",
-        "Planned advanced view for NSO status, known patch signatures, patch offsets, code caves, and generated notes.");
+    public void RoyalSwordPatchManager()
+    {
+        using var form = new RoyalSwordPatchManagerForm(ROM.PathExeFS);
+        form.ShowDialog();
+    }
 
     private static void ShowRoyalSwordToolPlaceholder(string title, string purpose)
     {
