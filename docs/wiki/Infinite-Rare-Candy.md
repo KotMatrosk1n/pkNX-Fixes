@@ -456,8 +456,8 @@ Current milestone examples:
 
 | Cap | Marker Type | Meaning |
 | --- | --- | --- |
-| 16 | flag | first Hop win, `FE_EV0110_WIN` default candidate |
-| 20 | flag | second Hop win candidate, `FE_EV0280_WIN` |
+| 16 | flag | Hop 007/008/009 endorsement battle clear, `FE_EV0280_WIN` |
+| 20 | work threshold | Hop 191/192/193 Motostoke post-battle progress, `WK_SCENE_MAIN_MASTER >= 530` |
 | 23 | work threshold | Bede 195 Galar Mine clear, `WK_SCENE_MAIN_MASTER >= 550` |
 | 25 | flag | Milo gym clear, `FE_GC_KUSA_CLEAR` |
 | 28 | work threshold | Hop 121/122/123 Hulbury clear |

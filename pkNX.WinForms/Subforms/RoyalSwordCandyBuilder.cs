@@ -423,7 +423,7 @@ internal static class RoyalCandyLayeredFsBuilder
     private const ulong EarlyPokeMartHash = 0x1F3FF031A3A24490;
     private const ulong BadgePokeMartInventoryHash = 0x66CA73B2966BB871;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
-    private const ulong FirstHopFlagHash = 0x005A329212277F11;
+    private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
     private const string ItemPath = "bin/pml/item/item.dat";
     private const string ShopPath = "bin/appli/shop/bin/shop_data.bin";
     private const string MessageRoot = "bin/message";
@@ -694,7 +694,7 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.InfiniteUse)
             PatchInfiniteCandidateItemUse(nso.DecompressedText, options.ItemId, patchNotes);
         if (options.StoryCapLadder)
-            PatchStoryCapLadder(nso.DecompressedText, options.ItemId, FirstHopFlagHash, options.MaxStoryCap, patchNotes);
+            PatchStoryCapLadder(nso.DecompressedText, options.ItemId, HopEndorsementFlagHash, options.MaxStoryCap, patchNotes);
         if (options.VirtualCount is { } virtualCount)
         {
             PatchCandidateVirtualInventoryOwnership(nso.DecompressedText, options.ItemId, patchNotes);
@@ -830,8 +830,8 @@ internal static class RoyalCandyLayeredFsBuilder
         new(28, SceneMainMasterWorkHash, "Hop 121/122/123 Hulbury clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 640),
         new(25, 0xB02911749203329A, "Milo gym clear (FE_GC_KUSA_CLEAR)"),
         new(23, SceneMainMasterWorkHash, "Bede 195 Galar Mine clear", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 550),
-        new(20, 0x005A329212277F11, "second Hop win candidate (FE_EV0280_WIN)"),
-        new(16, firstHopFlagHash, "first Hop win, confirmed for Hop 007/008/009 (FE_EV0110_WIN by default)"),
+        new(20, SceneMainMasterWorkHash, "Hop 191/192/193 Motostoke post-battle progress", RoyalSwordLevelCapMilestoneKind.WorkAtLeast, 530),
+        new(16, firstHopFlagHash, "Hop 007/008/009 endorsement battle clear (FE_EV0280_WIN by default)"),
     ];
 
     private static int WriteStoryCapHelper(byte[] text, RoyalSwordLevelCapMilestone[] milestones)
