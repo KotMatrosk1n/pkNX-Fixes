@@ -754,11 +754,7 @@ public sealed class RoyalSwordTrainerMap : Form
 
     private void ApplyTheme()
     {
-        BackColor = SystemColors.Control;
-        TrainerGrid.BackgroundColor = SystemColors.Window;
-        PlacementGrid.BackgroundColor = SystemColors.Window;
-        DetailsText.BackColor = SystemColors.Window;
-        DetailsText.ForeColor = SystemColors.WindowText;
+        WinFormsTheme.Apply(this);
     }
 
     private sealed record TrainerHashEntry(string Name, ulong Hash)

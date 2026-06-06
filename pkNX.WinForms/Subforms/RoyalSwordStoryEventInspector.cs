@@ -611,11 +611,7 @@ public sealed class RoyalSwordStoryEventInspector : Form
 
     private void ApplyTheme()
     {
-        BackColor = SystemColors.Control;
-        EventGrid.BackgroundColor = SystemColors.Window;
-        LineGrid.BackgroundColor = SystemColors.Window;
-        DetailsText.BackColor = SystemColors.Window;
-        DetailsText.ForeColor = SystemColors.WindowText;
+        WinFormsTheme.Apply(this);
     }
 
     private sealed record StoryEventEntry(

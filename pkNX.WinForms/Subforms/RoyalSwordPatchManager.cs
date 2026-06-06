@@ -635,12 +635,7 @@ public sealed class RoyalSwordPatchManagerForm : Form
 
     private void ApplyTheme()
     {
-        BackColor = SystemColors.Control;
-        SummaryText.BackColor = SystemColors.Window;
-        SummaryText.ForeColor = SystemColors.WindowText;
-        ValidationGrid.BackgroundColor = SystemColors.Window;
-        DetailsText.BackColor = SystemColors.Window;
-        DetailsText.ForeColor = SystemColors.WindowText;
+        WinFormsTheme.Apply(this);
     }
 
     private sealed record InstructionCheck(string Name, int Offset, uint Expected, string Description);

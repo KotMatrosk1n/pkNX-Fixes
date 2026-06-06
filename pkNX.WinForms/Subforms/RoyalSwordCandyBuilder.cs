@@ -24,6 +24,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private const int CandyDescriptionMaxLines = 3;
     private const string DefaultCandyDescriptionText = "Raises a Pokemon's level up to the current allowed cap";
     private const int DefaultStartingCap = 10;
+    private static readonly Color StatusBlockedColor = Color.FromArgb(255, 142, 142);
 
     private readonly string RomFsPath;
     private readonly string ExeFsPath;
@@ -51,8 +52,8 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
         Text = "Royal Candy";
         StartPosition = FormStartPosition.CenterParent;
-        MinimumSize = new Size(940, 620);
-        Size = new Size(1040, 700);
+        MinimumSize = new Size(1180, 740);
+        Size = new Size(1280, 820);
 
         InitializeLayout();
         ApplyTheme();
@@ -117,7 +118,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         LogText.Multiline = true;
         LogText.ReadOnly = true;
         LogText.ScrollBars = ScrollBars.Vertical;
-        LogText.WordWrap = false;
+        LogText.WordWrap = true;
 
         root.Controls.Add(ProjectStatusLabel, 0, 0);
         root.Controls.Add(actionPanel, 0, 1);
@@ -130,16 +131,18 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     {
         var status = AnalyzeProject();
         ProjectReady = status.Ready;
-        ProjectStatusLabel.Text = status.Message;
-        ProjectStatusLabel.ForeColor = status.Ready ? SystemColors.ControlText : Color.Firebrick;
+        SetProjectStatus(status.Message, status.Ready);
 
         if (status.Ready)
         {
             if (!AskGameVersion(status.DetectedFlavor))
             {
                 ProjectReady = false;
-                ProjectStatusLabel.Text = "Royal Candy output cancelled: choose Sword or Shield before building.";
-                ProjectStatusLabel.ForeColor = Color.Firebrick;
+                SetProjectStatus("Royal Candy output cancelled: choose Sword or Shield before building.", false);
+            }
+            else
+            {
+                RefreshInstalledRoyalCandyStatus();
             }
         }
 
@@ -321,6 +324,9 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
     private void CustomizeLimits()
     {
+        if (!CheckBuildPreflight(CreateOptions(RoyalCandyBuildMode.Unlimited, null)))
+            return;
+
         using var dialog = new RoyalCandyLimitDialog(SelectedGame, DefaultStartingCap, RoyalCandyLayeredFsBuilder.GetDefaultCapMilestoneDefinitions());
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
@@ -344,8 +350,12 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             SetResults(preflight.Results);
             LogText.Text = string.Join(Environment.NewLine, preflight.Notes);
             if (preflight.Passed)
+            {
+                SetReadyStatus();
                 return true;
+            }
 
+            SetProjectStatus(GetSimplePreflightStatus(preflight), false);
             MessageBox.Show(this, preflight.Message, "Royal Candy Preflight", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
@@ -355,6 +365,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
                 new("Fail", "Preflight", string.Empty, ex.Message),
             ]);
             LogText.Text = ex.ToString();
+            SetProjectStatus("Royal Candy cannot be installed until the preflight issue is fixed.", false);
             MessageBox.Show(this, ex.Message, "Royal Candy Preflight", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
@@ -372,6 +383,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             var summary = RoyalCandyLayeredFsBuilder.Build(options);
             SetResults(summary.Results);
             LogText.Text = string.Join(Environment.NewLine, summary.Notes);
+            SetProjectStatus(GetInstalledStatusText(options.Mode), false);
             MessageBox.Show(this, "Royal Candy output was generated.", "Royal Candy", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
@@ -380,6 +392,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
                 new("Fail", "Build", string.Empty, ex.Message),
             ]);
             LogText.Text = ex.ToString();
+            SetProjectStatus("Royal Candy output was not generated.", false);
         }
         finally
         {
@@ -440,6 +453,50 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         CustomizeButton.Enabled = enabled;
     }
 
+    private void RefreshInstalledRoyalCandyStatus()
+    {
+        try
+        {
+            var scan = RoyalCandyLayeredFsBuilder.DetectInstalledRoyalCandy(CreateOptions(RoyalCandyBuildMode.Unlimited, null));
+            if (scan is null)
+            {
+                SetReadyStatus();
+                return;
+            }
+
+            SetProjectStatus(GetInstalledStatusText(scan.Mode), false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            SetProjectStatus("Royal Candy cannot check the selected output folder yet.", false);
+            SetResults([
+                new("Fail", "Project", "output", ex.Message),
+            ]);
+        }
+    }
+
+    private void SetReadyStatus() =>
+        SetProjectStatus($"Ready: {SelectedGame} Royal Candy inputs selected. Choose a Royal Candy mode.", true);
+
+    private void SetProjectStatus(string message, bool ready)
+    {
+        ProjectStatusLabel.Text = message;
+        ProjectStatusLabel.ForeColor = ready ? WinFormsTheme.Text : StatusBlockedColor;
+    }
+
+    private static string GetSimplePreflightStatus(RoyalCandyBuildPreflight preflight)
+    {
+        if (preflight.InstalledRoyalCandy is { } installed)
+            return GetInstalledStatusText(installed.Mode);
+
+        return "Royal Candy cannot be installed until the preflight issue is fixed.";
+    }
+
+    private static string GetInstalledStatusText(RoyalCandyBuildMode mode) =>
+        mode == RoyalCandyBuildMode.CustomLimits
+            ? "Custom Royal Candy already installed."
+            : "Unlimited Royal Candy already installed.";
+
     private void ConfigurePrimaryActionButton(Button button, string text, string tooltip, Action action)
     {
         button.Text = text;
@@ -455,7 +512,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         grid.AllowUserToAddRows = false;
         grid.AllowUserToDeleteRows = false;
         grid.AllowUserToResizeRows = false;
-        grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+        grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCellsExceptHeaders;
         grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         grid.Dock = DockStyle.Fill;
         grid.EditMode = DataGridViewEditMode.EditProgrammatically;
@@ -463,6 +520,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         grid.ReadOnly = true;
         grid.RowHeadersVisible = false;
         grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        grid.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
     }
 
     private static string CompileCandyDescription(string text)
@@ -539,10 +597,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
     private void ApplyTheme()
     {
-        BackColor = SystemColors.Control;
-        ResultGrid.BackgroundColor = SystemColors.Window;
-        LogText.BackColor = SystemColors.Window;
-        LogText.ForeColor = SystemColors.WindowText;
+        WinFormsTheme.Apply(this);
     }
 }
 
@@ -609,6 +664,7 @@ internal sealed class RoyalCandyGameVersionDialog : Form
         root.Controls.Add(ShieldButton, 0, 2);
         root.Controls.Add(buttons, 0, 3);
         Controls.Add(root);
+        WinFormsTheme.Apply(this);
     }
 }
 
@@ -704,6 +760,7 @@ internal sealed class RoyalCandyLimitDialog : Form
         root.Controls.Add(scroll, 0, 1);
         root.Controls.Add(actions, 0, 2);
         Controls.Add(root);
+        WinFormsTheme.Apply(this);
     }
 
     private void Confirm()
@@ -814,7 +871,7 @@ internal static class RoyalCandyLayeredFsBuilder
             results.Add(new("Fail", "Preflight", "exefs/main", message));
             notes.Add("- " + message);
             notes.AddRange(existingRoyalCandy.Details.Select(detail => "  - " + detail));
-            return new(false, message, results, notes);
+            return new(false, message, results, notes, existingRoyalCandy);
         }
 
         if (!options.BuildExeFs)
@@ -2013,6 +2070,9 @@ internal static class RoyalCandyLayeredFsBuilder
             names.Add(Path.GetFileName(file));
     }
 
+    public static RoyalCandyInstallScan? DetectInstalledRoyalCandy(RoyalCandyBuildOptions options) =>
+        DetectExistingRoyalCandy(options);
+
     private static RoyalCandyInstallScan? DetectExistingRoyalCandy(RoyalCandyBuildOptions options)
     {
         var layeredMainPath = GetLayeredFsExeFsPath(options, "main");
@@ -2064,7 +2124,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var mode = storyCapDetails.Count >= 2 ? RoyalCandyBuildMode.CustomLimits : RoyalCandyBuildMode.Unlimited;
         var game = GetTitleId(options.GameFlavor);
         var description = $"{mode} for {options.GameFlavor} (detected from layered exefs/main patch anchors in {game})";
-        return new(description, details);
+        return new(mode, options.GameFlavor, description, details);
     }
 
     private static bool HasRoyalCandyExpCandyBypass(byte[] text)
@@ -2320,8 +2380,8 @@ internal sealed record RoyalCandyBuildOptions(
     RoyalCandyBuildMode Mode);
 
 internal sealed record RoyalCandyBuildSummary(IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
-internal sealed record RoyalCandyBuildPreflight(bool Passed, string Message, IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
-internal sealed record RoyalCandyInstallScan(string Description, IReadOnlyList<string> Details);
+internal sealed record RoyalCandyBuildPreflight(bool Passed, string Message, IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes, RoyalCandyInstallScan? InstalledRoyalCandy = null);
+internal sealed record RoyalCandyInstallScan(RoyalCandyBuildMode Mode, RoyalCandyGameFlavor GameFlavor, string Description, IReadOnlyList<string> Details);
 internal sealed record BuildResult(string Status, string Area, string Output, string Message);
 
 internal enum RoyalCandyBuildMode
