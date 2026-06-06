@@ -52,9 +52,32 @@ internal class EditorSWSH : EditorBase
     }
 
     [EditorCallable(EditorCategory.None, editorName: "Trainer Map", toolset: EditorToolset.RoyalSword, description: "Royal Sword Trainer Progress Mapper: correlate trainers with placement, story events, and progress markers.")]
-    public void RoyalSwordTrainerMap() => ShowRoyalSwordToolPlaceholder(
-        "Royal Sword Trainer Progress Mapper",
-        "Planned mapper for trainer IDs, trainer hashes, teams, placement hits, story-event evidence, and progress-marker confidence.");
+    public void RoyalSwordTrainerMap()
+    {
+        var editor = new TrainerEditor
+        {
+            ReadClass = data => new TrainerClass8(data),
+            ReadPoke = data => new TrainerPoke8(data),
+            ReadTrainer = data => new TrainerData8(data),
+            ReadTeam = TrainerPoke8.ReadTeam,
+            WriteTeam = TrainerPoke8.WriteTeam,
+            TrainerData = ROM.GetFilteredFolder(GameFile.TrainerSpecData),
+            TrainerPoke = ROM.GetFilteredFolder(GameFile.TrainerSpecPoke),
+            TrainerClass = ROM.GetFilteredFolder(GameFile.TrainerSpecClass),
+        };
+        editor.Initialize();
+
+        var placement = ROM.GetFile(GameFile.Placement)[0];
+        using var form = new RoyalSwordTrainerMap(
+            editor,
+            ROM.GetStrings(TextName.TrainerNames),
+            ROM.GetStrings(TextName.TrainerClasses),
+            ROM.GetStrings(TextName.SpeciesNames),
+            ROM.PathRomFS,
+            placement);
+        form.ShowDialog();
+        editor.CancelEdits();
+    }
 
     [EditorCallable(EditorCategory.None, editorName: "Save Inspector", toolset: EditorToolset.RoyalSword, description: "Royal Sword Save Inspector: evaluate save progress and Royal Sword milestone state.")]
     public void RoyalSwordSaveInspector() => ShowRoyalSwordToolPlaceholder(
