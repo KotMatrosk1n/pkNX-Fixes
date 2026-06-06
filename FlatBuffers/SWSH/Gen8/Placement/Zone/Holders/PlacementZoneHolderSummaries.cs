@@ -13,6 +13,7 @@ public static class PlacementZoneLabelProvider
     private static IReadOnlyDictionary<ulong, string> ItemNames { get; set; } = new Dictionary<ulong, string>();
     private static IReadOnlyDictionary<int, ulong> ItemHashesByID { get; set; } = new Dictionary<int, ulong>();
     private static IReadOnlyDictionary<ulong, string> StaticSpawnNames { get; set; } = new Dictionary<ulong, string>();
+    private static IReadOnlyDictionary<ulong, string> TrainerNames { get; set; } = new Dictionary<ulong, string>();
     private static IReadOnlyDictionary<ulong, string> HashNames { get; set; } = new Dictionary<ulong, string>();
 
     public static void Configure(
@@ -20,6 +21,7 @@ public static class PlacementZoneLabelProvider
         IReadOnlyDictionary<ulong, string> objectNames,
         IReadOnlyDictionary<ulong, string> itemNames,
         IReadOnlyDictionary<ulong, string> staticSpawnNames,
+        IReadOnlyDictionary<ulong, string> trainerNames,
         IReadOnlyDictionary<ulong, string> hashNames)
     {
         ZoneNames = zoneNames;
@@ -27,6 +29,7 @@ public static class PlacementZoneLabelProvider
         ItemNames = itemNames;
         ItemHashesByID = BuildItemHashLookup(itemNames);
         StaticSpawnNames = staticSpawnNames;
+        TrainerNames = trainerNames;
         HashNames = hashNames;
     }
 
@@ -46,7 +49,7 @@ public static class PlacementZoneLabelProvider
 
     public static string StaticSpawn(ulong hash) => StaticSpawnNames.TryGetValue(hash, out var name) ? name : Hash(hash, "Unresolved static encounter");
 
-    public static string Trainer(ulong hash) => Hash(hash, "Unresolved trainer");
+    public static string Trainer(ulong hash) => TrainerNames.TryGetValue(hash, out var name) ? CleanHashName(name) : Hash(hash, "Unresolved trainer");
 
     public static IReadOnlyCollection<ulong> ItemHashes => ItemNames.Keys.ToArray();
 

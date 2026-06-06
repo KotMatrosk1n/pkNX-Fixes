@@ -1085,8 +1085,10 @@ internal class EditorSWSH : EditorBase
             zoneDisplayNames.TryAdd(zone.Key, zone.Value);
         var itemDisplayNames = GetPlacementItemDisplayNames();
         var staticSpawnDisplayNames = GetPlacementStaticSpawnDisplayNames();
-        var hashDisplayNames = GetPlacementHashDisplayNames(area_names, zoneDisplayNames, object_names, itemDisplayNames, staticSpawnDisplayNames, vanish_flags);
-        PlacementZoneLabelProvider.Configure(zoneDisplayNames, object_names, itemDisplayNames, staticSpawnDisplayNames, hashDisplayNames);
+        var flagworkDisplayNames = GetPlacementFlagworkDisplayNames();
+        var trainerDisplayNames = GetPlacementTrainerDisplayNames();
+        var hashDisplayNames = GetPlacementHashDisplayNames(area_names, zoneDisplayNames, object_names, itemDisplayNames, staticSpawnDisplayNames, vanish_flags, flagworkDisplayNames, trainerDisplayNames);
+        PlacementZoneLabelProvider.Configure(zoneDisplayNames, object_names, itemDisplayNames, staticSpawnDisplayNames, trainerDisplayNames, hashDisplayNames);
 
         List<PlacementZoneArchive> areas = [];
         List<string> names = [];
@@ -1214,12 +1216,49 @@ internal class EditorSWSH : EditorBase
                 });
         }
 
+        IReadOnlyDictionary<ulong, string> GetPlacementFlagworkDisplayNames()
+        {
+            var flagworkDirectory = Path.Combine(ROM.PathRomFS, "bin", "flagwork");
+            if (!Directory.Exists(flagworkDirectory))
+                return new Dictionary<ulong, string>();
+
+            var result = new Dictionary<ulong, string>();
+            foreach (var file in Directory.EnumerateFiles(flagworkDirectory, "*.tbl", SearchOption.TopDirectoryOnly))
+            {
+                foreach (var (hash, name) in TryReadAhtb(file))
+                    result[hash] = name;
+            }
+
+            return result;
+        }
+
+        IReadOnlyDictionary<ulong, string> GetPlacementTrainerDisplayNames()
+        {
+            var path = Path.Combine(ROM.PathRomFS, "bin", "trainer", "trainer_id_hash_table.tbl");
+            return TryReadAhtb(path);
+        }
+
         static IReadOnlyDictionary<ulong, string> TryGetPlacementHashTable(GFPack placement, string fileName)
         {
             if (placement.GetIndexFileName(fileName) < 0)
                 return new Dictionary<ulong, string>();
 
             return new AHTB(placement.GetDataFileName(fileName)).ToDictionary();
+        }
+
+        static IReadOnlyDictionary<ulong, string> TryReadAhtb(string path)
+        {
+            if (!File.Exists(path))
+                return new Dictionary<ulong, string>();
+
+            try
+            {
+                return new AHTB(File.ReadAllBytes(path)).ToDictionary();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+            {
+                return new Dictionary<ulong, string>();
+            }
         }
 
         static IReadOnlyDictionary<ulong, string> GetPlacementHashDisplayNames(params IReadOnlyDictionary<ulong, string>[] sources)
