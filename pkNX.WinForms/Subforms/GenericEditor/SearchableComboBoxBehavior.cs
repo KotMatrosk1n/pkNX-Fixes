@@ -12,7 +12,6 @@ public sealed class SearchableComboBoxBehavior
     private readonly ComboBox Combo;
     private readonly SearchListBox SearchList = new();
     private bool UpdatingText;
-    private bool SuppressAutoComplete;
 
     public SearchableComboBoxBehavior(Form owner, ComboBox combo)
     {
@@ -26,12 +25,7 @@ public sealed class SearchableComboBoxBehavior
         Combo.ItemHeight = 22;
         Combo.DropDownHeight = 1;
         Combo.DrawItem += DrawComboItem;
-        Combo.TextUpdate += (_, _) =>
-        {
-            var append = !SuppressAutoComplete;
-            SuppressAutoComplete = false;
-            FilterEntries(append);
-        };
+        Combo.TextUpdate += (_, _) => FilterEntries();
         Combo.DropDown += (_, _) =>
         {
             var closeCustomDropDown = SearchList.Visible;
@@ -55,8 +49,7 @@ public sealed class SearchableComboBoxBehavior
             if (SearchList.Focused)
                 return;
 
-            if (!CommitSelectionFromText())
-                RestoreSelectedText();
+            RestoreSelectedText();
             HideSearchList();
         }));
 
@@ -70,7 +63,6 @@ public sealed class SearchableComboBoxBehavior
         SearchList.Visible = false;
         SearchList.DrawItem += DrawSearchListItem;
         SearchList.Click += (_, _) => CommitSearchListSelection();
-        SearchList.MouseMove += SearchList_MouseMove;
         SearchList.BeforeMouseWheel += SearchList_BeforeMouseWheel;
         SearchList.KeyDown += SearchList_KeyDown;
         SearchList.Leave += (_, _) => Owner.BeginInvoke((MethodInvoker)(() =>
@@ -146,15 +138,8 @@ public sealed class SearchableComboBoxBehavior
 
     private void HandleDeleteKey(KeyEventArgs e)
     {
-        SuppressAutoComplete = true;
         if (Combo.SelectionLength == 0)
-        {
-            var caret = Combo.SelectionStart;
-            var canDelete = e.KeyCode == Keys.Back ? caret > 0 : caret < Combo.Text.Length;
-            if (!canDelete)
-                SuppressAutoComplete = false;
             return;
-        }
 
         var text = Combo.Text;
         var selectionStart = Math.Min(Combo.SelectionStart, text.Length);
@@ -163,27 +148,22 @@ public sealed class SearchableComboBoxBehavior
             : text[..selectionStart];
 
         SetSearchText(newText);
-        SuppressAutoComplete = false;
         e.Handled = true;
         e.SuppressKeyPress = true;
     }
 
-    private void FilterEntries(bool appendAutoComplete)
+    private void FilterEntries()
     {
         if (UpdatingText)
             return;
 
         var userText = GetSearchText();
         var matches = GetMatches(userText).ToArray();
-        var autoCompleteMatch = appendAutoComplete ? GetAutoCompleteMatch(userText, matches) : null;
-        var displayText = autoCompleteMatch?.Text ?? userText;
-        var selectionStart = autoCompleteMatch == null ? userText.Length : Math.Min(userText.Length, autoCompleteMatch.Text.Length);
-        var selectionLength = autoCompleteMatch == null ? 0 : autoCompleteMatch.Text.Length - selectionStart;
 
         UpdatingText = true;
-        Combo.Text = displayText;
-        Combo.SelectionStart = selectionStart;
-        Combo.SelectionLength = selectionLength;
+        Combo.Text = userText;
+        Combo.SelectionStart = userText.Length;
+        Combo.SelectionLength = 0;
         UpdatingText = false;
 
         ShowSearchList(userText, matches);
@@ -196,7 +176,7 @@ public sealed class SearchableComboBoxBehavior
         Combo.SelectionStart = text.Length;
         Combo.SelectionLength = 0;
         UpdatingText = false;
-        FilterEntries(false);
+        FilterEntries();
     }
 
     private void ShowDropDownList()
@@ -347,15 +327,6 @@ public sealed class SearchableComboBoxBehavior
         return 3;
     }
 
-    private static ComboEntry? GetAutoCompleteMatch(string text, IReadOnlyList<ComboEntry> matches)
-    {
-        text = text.Trim();
-        if (text.Length == 0)
-            return null;
-
-        return matches.FirstOrDefault(entry => entry.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase));
-    }
-
     private int FindIndex(string text, bool allowPrefix)
     {
         text = text.Trim();
@@ -382,16 +353,6 @@ public sealed class SearchableComboBoxBehavior
     }
 
     private string GetItemText(int index) => Combo.GetItemText(Combo.Items[index]) ?? string.Empty;
-
-    private void SearchList_MouseMove(object? sender, MouseEventArgs e)
-    {
-        if (SearchList.Items.Count == 0)
-            return;
-
-        var index = SearchList.IndexFromPoint(e.Location);
-        if (index >= 0 && index < SearchList.Items.Count && index != SearchList.SelectedIndex)
-            SearchList.SelectedIndex = index;
-    }
 
     private void SearchList_BeforeMouseWheel(object? sender, SearchMouseWheelEventArgs e)
     {

@@ -258,7 +258,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
             if (EntrySearchList?.Focused == true)
                 return;
 
-            CommitEntrySelectionFromText(allowPrefix: true);
+            RestoreSelectedEntryText();
             HideEntrySearchList();
         }));
         CB_EntryName.KeyDown += CB_EntryName_KeyDown;
@@ -277,7 +277,6 @@ public sealed partial class GenericEditor<T> : Form where T : class
         EntrySearchList.BeforeMouseWheel += EntrySearchList_BeforeMouseWheel;
         EntrySearchList.DrawItem += DrawEntryListItem;
         EntrySearchList.Click += (_, _) => CommitEntryListSelection();
-        EntrySearchList.MouseMove += EntrySearchList_MouseMove;
         EntrySearchList.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Enter)
@@ -303,16 +302,6 @@ public sealed partial class GenericEditor<T> : Form where T : class
 
             HideEntrySearchList();
         }));
-    }
-
-    private void EntrySearchList_MouseMove(object? sender, MouseEventArgs e)
-    {
-        if (EntrySearchList is not { Items.Count: > 0 } list)
-            return;
-
-        var index = list.IndexFromPoint(e.Location);
-        if (index >= 0 && index < list.Items.Count && index != list.SelectedIndex)
-            list.SelectedIndex = index;
     }
 
     private void EntrySearchList_BeforeMouseWheel(object? sender, EntrySelectorMouseWheelEventArgs e)

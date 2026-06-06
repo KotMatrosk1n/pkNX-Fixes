@@ -126,7 +126,6 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             Results.IntegralHeight = false;
             Results.ItemHeight = 22;
             Results.Margin = Padding.Empty;
-            Results.MouseMove += Results_MouseMove;
             Results.Click += (_, _) => CommitSelectedEntry();
             Results.KeyDown += Results_KeyDown;
             Results.DrawItem += DrawResultItem;
@@ -360,13 +359,6 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
                 e.Handled = true;
                 e.SuppressKeyPress = true;
             }
-        }
-
-        private void Results_MouseMove(object? sender, MouseEventArgs e)
-        {
-            var index = Results.IndexFromPoint(e.Location);
-            if (index >= 0 && index < Results.Items.Count && index != Results.SelectedIndex)
-                Results.SelectedIndex = index;
         }
 
         private void MoveSelection(int delta)

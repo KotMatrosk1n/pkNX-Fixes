@@ -42,7 +42,10 @@ public partial class BTTE : Form
     private readonly CheckBox[] AIBits;
     private readonly List<SearchableComboBoxBehavior> SearchableCombos = [];
     private readonly Dictionary<TeamSpriteKey, Image> TeamSpriteCache = [];
-    private bool[] TrainerClassHasSingleOwner = [];
+    private const sbyte TrainerClassOwnershipUnknown = -1;
+    private const sbyte TrainerClassOwnershipShared = 0;
+    private const sbyte TrainerClassOwnershipSingleOwner = 1;
+    private sbyte[] TrainerClassOwnership = [];
     private readonly Label L_ClassBall = new();
     private readonly ComboBox CB_ClassBall = new();
     private readonly ToolTip TrainerToolTip = new()
@@ -334,30 +337,7 @@ public partial class BTTE : Form
             return;
 
         var count = Math.Max(Trainers.TrainerClass.Count, trClass.Length);
-        var firstOwnerNames = new string?[count];
-        var hasMultipleOwners = new bool[count];
-        for (int i = 0; i < Trainers.TrainerData.Count; i++)
-        {
-            var trainer = Trainers.ReadTrainer(Trainers.TrainerData[i]);
-            var classIndex = trainer.Class;
-            if ((uint)classIndex >= (uint)firstOwnerNames.Length)
-                continue;
-
-            var ownerName = GetTrainerClassOwnerName(i);
-            var firstOwnerName = firstOwnerNames[classIndex];
-            if (firstOwnerName is null)
-            {
-                firstOwnerNames[classIndex] = ownerName;
-            }
-            else if (!hasMultipleOwners[classIndex] && !string.Equals(firstOwnerName, ownerName, StringComparison.Ordinal))
-            {
-                hasMultipleOwners[classIndex] = true;
-            }
-        }
-
-        TrainerClassHasSingleOwner = firstOwnerNames
-            .Select((ownerName, i) => ownerName is not null && !hasMultipleOwners[i])
-            .ToArray();
+        TrainerClassOwnership = Enumerable.Repeat(TrainerClassOwnershipUnknown, count).ToArray();
     }
 
     private string GetTrainerClassOwnerName(int trainerIndex)
@@ -369,8 +349,46 @@ public partial class BTTE : Form
     private bool CanEditTrainerClassBall(int classIndex) =>
         Game.Info.SWSH
         && (uint)classIndex < (uint)Trainers.TrainerClass.Count
-        && (uint)classIndex < (uint)TrainerClassHasSingleOwner.Length
-        && TrainerClassHasSingleOwner[classIndex];
+        && IsTrainerClassSingleOwner(classIndex);
+
+    private bool IsTrainerClassSingleOwner(int classIndex)
+    {
+        if ((uint)classIndex >= (uint)TrainerClassOwnership.Length)
+            return false;
+
+        ref var state = ref TrainerClassOwnership[classIndex];
+        if (state == TrainerClassOwnershipUnknown)
+            state = ComputeTrainerClassHasSingleOwner(classIndex)
+                ? TrainerClassOwnershipSingleOwner
+                : TrainerClassOwnershipShared;
+
+        return state == TrainerClassOwnershipSingleOwner;
+    }
+
+    private bool ComputeTrainerClassHasSingleOwner(int classIndex)
+    {
+        string? firstOwnerName = null;
+        for (int i = 0; i < Trainers.TrainerData.Count; i++)
+        {
+            if (ReadTrainerClass(Trainers.TrainerData[i]) != classIndex)
+                continue;
+
+            var ownerName = GetTrainerClassOwnerName(i);
+            if (firstOwnerName is null)
+            {
+                firstOwnerName = ownerName;
+            }
+            else if (!string.Equals(firstOwnerName, ownerName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return firstOwnerName is not null;
+    }
+
+    private static int ReadTrainerClass(byte[] data) =>
+        data.Length < 2 ? -1 : System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(0, 2));
 
     private void ConfigureSearchableDropdowns()
     {
