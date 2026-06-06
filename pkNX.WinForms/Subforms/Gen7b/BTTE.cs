@@ -901,8 +901,8 @@ public partial class BTTE : Form
         SuspendTrainerLayout();
         try
         {
-            PopulateFieldsTrainer(tr.Self);
             UpdateMoneyItemsForTeam(tr.Team);
+            PopulateFieldsTrainer(tr.Self);
             PopulateTeam(tr.Team);
             UpdateMoneyToolTip();
         }
