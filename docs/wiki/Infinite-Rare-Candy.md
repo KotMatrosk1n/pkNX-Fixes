@@ -683,13 +683,13 @@ Candy Builder is the mutating editor. It can validate or build a LayeredFS outpu
 - story-cap ladder;
 - Bag pickup AMX grant for fresh-new-game acquisition;
 - optional max-cap probe mode;
-- generated notes and README.
+- one Royal Sword marker file.
 
 This is the current user-facing output tool. It writes into the normal Sword/Shield title-ID LayeredFS folder instead of a separate experiment folder, which lets the generated files sit beside normal pkNX editor output.
 
 The builder also treats an existing title-ID mod folder as part of the source stack. If a file already exists in the LayeredFS folder, the builder reads that file first and only falls back to the clean base dump when the mod layer does not provide it. That matters for users who already edited shops, raid rewards, placement data, message files, AMX scripts, or `exefs/main`; Royal Candy can layer on top of those changes instead of rebuilding from vanilla and accidentally discarding them.
 
-ExeFS gets a dedicated preflight before writing. If an existing `exefs/main` overlay is present, the builder first scans the executable itself for Royal Candy patch anchors. That scan decompresses the NSO text segment, decodes the ARM64 branch targets used by the Royal Candy hooks, and identifies whether the installed output looks like unlimited or custom-limit Royal Candy. Generated notes are useful for humans, but they are not the source of truth for installed-patch detection.
+ExeFS gets a dedicated preflight before writing. If an existing `exefs/main` overlay is present, the builder first scans the executable itself for Royal Candy patch anchors. That scan decompresses the NSO text segment, decodes the ARM64 branch targets used by the Royal Candy hooks, and identifies whether the installed output looks like unlimited or custom-limit Royal Candy. The generated mod folder only needs a small Royal Sword marker text file; detailed technical patch output stays in the editor log, and installed-patch detection is based on file scans rather than note text.
 
 If the existing executable is not already Royal Candy, the builder dry-runs the Royal Candy patch anchors against that overlay. Compatible executable edits can be layered. Conflicting executable edits are reported before the warning/confirm step.
 

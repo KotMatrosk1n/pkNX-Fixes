@@ -910,6 +910,8 @@ internal static class RoyalCandyLayeredFsBuilder
     internal const string ItemInfoFile = "iteminfo.dat";
     private const string RoyalCandyName = "Royal Candy";
     private const string RoyalCandyPluralName = "Royal Candies";
+    private const string MarkerFileName = "RoyalSword_RoyalCandy.txt";
+    private const string MarkerHeader = "Royal Sword - Royal Candy";
 
     public static RoyalCandyBuildSummary Build(RoyalCandyBuildOptions options)
     {
@@ -952,8 +954,8 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.BuildExeFs)
             PatchExeFsMain(options, results, notes);
 
-        WriteReadme(options, notes);
-        results.Add(new("Pass", "Output", "README.md", "Generated Royal Candy build notes."));
+        WriteMarkerFile(options);
+        results.Add(new("Pass", "Output", MarkerFileName, "Generated Royal Sword marker file."));
         return new(results, notes);
     }
 
@@ -1175,23 +1177,8 @@ internal static class RoyalCandyLayeredFsBuilder
         patched = AppendUniqueItemRow(patched, options.ItemId, target.Data);
         WriteOutputBytes(options.OutputPath, "romfs/" + ItemPath, patched);
 
-        var notesPath = Path.Combine(options.OutputPath, "royal_candy_item_row_notes.txt");
-        File.WriteAllText(notesPath, string.Join(Environment.NewLine, [
-            "Royal Candy item row patch",
-            "==========================",
-            "",
-            $"Template source id: {options.TemplateItemId}",
-            $"Royal Candy item id: {options.ItemId}",
-            "",
-            "The selected item row is cloned from the template, adjusted into a Key Items pocket level-up item, and pointed at a new unique raw item row.",
-            $"Vanilla candidate bytes: {Convert.ToHexString(originalTarget)}",
-            $"Template bytes:          {Convert.ToHexString(template.Data.ToArray())}",
-            $"Patched candidate bytes: {Convert.ToHexString(target.Data.ToArray())}",
-            $"Original shared row ids: {FormatSharedIds(sharedIds, options.ItemId)}",
-        ]));
-
         results.Add(new("Pass", "RomFS", "romfs/" + ItemPath, "Royal Candy item row generated."));
-        notes.Add($"- Generated romfs/{ItemPath} from item {options.TemplateItemId} into item {options.ItemId}; source was {sourceDescription}.");
+        notes.Add($"- Generated romfs/{ItemPath} from item {options.TemplateItemId} into item {options.ItemId}; source was {sourceDescription}; vanilla candidate bytes {Convert.ToHexString(originalTarget)}; template bytes {Convert.ToHexString(template.Data.ToArray())}; shared row ids {FormatSharedIds(sharedIds, options.ItemId)}.");
     }
 
     private static void PatchItemText(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
@@ -1260,11 +1247,11 @@ internal static class RoyalCandyLayeredFsBuilder
         var placementReplacements = PatchSourcePlacementItems(options, results, cleanupNotes);
         var totalChanges = shopRemovals + raidReplacements + placementReplacements;
 
-        File.WriteAllText(Path.Combine(options.OutputPath, "royal_candy_source_cleanup_notes.txt"), string.Join(Environment.NewLine, cleanupNotes));
-        results.Add(new(totalChanges == 0 ? "Warning" : "Pass", "RomFS", "royal_candy_source_cleanup_notes.txt", $"Cleaned {totalChanges:N0} vanilla acquisition entr{(totalChanges == 1 ? "y" : "ies")} for source item {options.ItemId}."));
+        results.Add(new(totalChanges == 0 ? "Warning" : "Pass", "RomFS", "romfs", $"Cleaned {totalChanges:N0} vanilla acquisition entr{(totalChanges == 1 ? "y" : "ies")} for source item {options.ItemId}."));
         notes.Add(totalChanges == 0
             ? $"- Source acquisition cleanup found no vanilla item {options.ItemId} entries to change."
             : $"- Cleaned {totalChanges:N0} vanilla item {options.ItemId} acquisition entr{(totalChanges == 1 ? "y" : "ies")}; hidden pickups and raid rewards become regular Rare Candy.");
+        notes.AddRange(cleanupNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
     }
 
     private static int PatchSourceShopData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
@@ -1980,9 +1967,6 @@ internal static class RoyalCandyLayeredFsBuilder
         var patchNotes = new List<string>();
         var patched = CreatePatchedExeFsMain(File.ReadAllBytes(mainPath), options, patchNotes);
         WriteOutputBytes(options.OutputPath, "exefs/main", patched);
-        var notesPath = Path.Combine(options.OutputPath, "exefs", "royal_candy_ui_hook_patch_notes.txt");
-        Directory.CreateDirectory(Path.GetDirectoryName(notesPath)!);
-        File.WriteAllText(notesPath, string.Join(Environment.NewLine, patchNotes));
 
         results.Add(new("Pass", "ExeFS", "exefs/main", "Royal Candy ExeFS patch generated."));
         notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
@@ -2675,34 +2659,16 @@ internal static class RoyalCandyLayeredFsBuilder
             : string.Join(", ", otherIds.Take(20)) + (otherIds.Length > 20 ? $", ... ({otherIds.Length} total)" : "");
     }
 
-    private static void WriteReadme(RoyalCandyBuildOptions options, List<string> notes)
+    private static void WriteMarkerFile(RoyalCandyBuildOptions options)
     {
         var text = string.Join(Environment.NewLine, [
-            "# Royal Candy Patch",
+            MarkerHeader,
+            "Generated by pkNX Royal Sword.",
             "",
-            "This folder is shaped like a Sword/Shield LayeredFS patch generated by pkNX Royal Sword Candy Builder.",
-            "When this build was generated, existing files in this LayeredFS folder were treated as higher-priority source files over the base dump.",
-            "",
-            $"Selected item id: `{options.ItemId}`",
-            $"Template item id: `{options.TemplateItemId}`",
-            $"Mode: `{options.Mode}`",
-            $"Game: `{options.GameFlavor}`",
-            $"Description: `{options.ItemDescription}`",
-            $"Story cap mode: `{(options.StoryCapLadder ? "Royal Sword ladder" : "disabled")}`",
-            $"Default cap: `{options.DefaultCap}`",
-            $"Max story cap: `{(options.MaxStoryCap is { } cap ? cap.ToString(CultureInfo.InvariantCulture) : "full ladder")}`",
-            "",
-            "Generated pieces:",
-            options.BuildRomFs ? "- `romfs/bin/pml/item/item.dat`: Royal Candy item metadata." : "- RomFS item output disabled.",
-            options.BuildRomFs ? "- `romfs/bin/message/*/common/itemname*.dat` and `iteminfo.dat`: Royal Candy text." : "- RomFS text output disabled.",
-            options.BuildRomFs ? "- RomFS acquisition cleanup: removes the repurposed source item from shops and replaces raid/placement sources with regular Rare Candy." : "- RomFS acquisition cleanup disabled.",
-            options.GrantOnBagEvent ? "- `romfs/bin/script/amx/main_event_0020.amx`: Bag pickup event grants Royal Candy in a fresh new game." : "- Bag pickup script grant disabled.",
-            options.BuildExeFs ? "- `exefs/main`: Royal Candy route, non-consumption, virtual count, and cap helper patch." : "- ExeFS output disabled.",
-            "",
-            "Build log:",
-            .. notes,
+            "Manage this output through the Royal Candy editor.",
         ]);
-        File.WriteAllText(Path.Combine(options.OutputPath, "README.md"), text);
+        Directory.CreateDirectory(options.OutputPath);
+        File.WriteAllText(Path.Combine(options.OutputPath, MarkerFileName), text);
     }
 
     private static string GetRomFsPath(string romFsPath, string relativePath) =>
@@ -2798,25 +2764,41 @@ internal static class RoyalCandyLayeredFsBuilder
     private static IEnumerable<string> EnumerateRoyalCandyOwnedOutputRelativePaths(RoyalCandyBuildOptions options)
     {
         yield return "exefs/main";
+
+        // Legacy generated notes from earlier Royal Candy builder versions.
         yield return "exefs/royal_candy_ui_hook_patch_notes.txt";
         yield return "royal_candy_item_row_notes.txt";
         yield return "royal_candy_source_cleanup_notes.txt";
         yield return "royal_candy_bag_event_script_notes.txt";
 
+        if (IsOwnedRoyalCandyMarker(options.OutputPath))
+            yield return MarkerFileName;
+
         if (IsOwnedRoyalCandyReadme(options.OutputPath))
             yield return "README.md";
+    }
+
+    private static bool IsOwnedRoyalCandyMarker(string outputRoot)
+    {
+        var markerPath = Path.Combine(outputRoot, MarkerFileName);
+        return TextFileStartsWithLine(markerPath, MarkerHeader);
     }
 
     private static bool IsOwnedRoyalCandyReadme(string outputRoot)
     {
         var readmePath = Path.Combine(outputRoot, "README.md");
-        if (!File.Exists(readmePath))
+        return TextFileStartsWithLine(readmePath, "# Royal Candy Patch");
+    }
+
+    private static bool TextFileStartsWithLine(string path, string expectedLine)
+    {
+        if (!File.Exists(path))
             return false;
 
         try
         {
-            using var reader = File.OpenText(readmePath);
-            return string.Equals(reader.ReadLine(), "# Royal Candy Patch", StringComparison.Ordinal);
+            using var reader = File.OpenText(path);
+            return string.Equals(reader.ReadLine(), expectedLine, StringComparison.Ordinal);
         }
         catch (IOException)
         {
