@@ -64,6 +64,7 @@ public partial class BTTE : Form
     private bool PokemonEditorListsLoaded;
     private bool MoveListLoaded;
     private bool StatsInitialized;
+    private bool TrainerItemListsLoaded;
 
     public BTTE(GameData data, TrainerEditor editor, GameManager game)
     {
@@ -102,6 +103,7 @@ public partial class BTTE : Form
         ApplyTrainerEditorTheme();
         ConfigureSearchableDropdowns();
         ConfigureTrainerToolTips();
+        RegisterTrainerItemLazyLoads();
         CB_Money.SelectedIndexChanged += (_, _) =>
         {
             if (!UpdatingMoneyItems)
@@ -478,6 +480,60 @@ public partial class BTTE : Form
         };
     }
 
+    private void RegisterTrainerItemLazyLoads()
+    {
+        foreach (var combo in GetTrainerItemCombos())
+        {
+            combo.Enter += (_, _) => EnsureTrainerItemListsLoaded();
+            combo.DropDown += (_, _) => EnsureTrainerItemListsLoaded();
+        }
+    }
+
+    private ComboBox[] GetTrainerItemCombos() => [CB_Item_1, CB_Item_2, CB_Item_3, CB_Item_4, CB_Gift];
+
+    private void EnsureTrainerItemListsLoaded()
+    {
+        if (TrainerItemListsLoaded)
+            return;
+
+        var combos = GetTrainerItemCombos();
+        var values = combos.Select(GetTrainerItemComboValue).ToArray();
+        TrainerItemListsLoaded = true;
+
+        for (var i = 0; i < combos.Length; i++)
+        {
+            SetComboItems(combos[i], itemlist);
+            SetTrainerItemComboValue(combos[i], values[i]);
+        }
+    }
+
+    private void SetTrainerItemComboValue(ComboBox combo, int value)
+    {
+        value = Math.Clamp(value, 0, itemlist.Length - 1);
+        combo.Tag = value;
+
+        if (TrainerItemListsLoaded)
+        {
+            combo.SelectedIndex = combo.Items.Count == 0 ? -1 : Math.Clamp(value, 0, combo.Items.Count - 1);
+            return;
+        }
+
+        combo.SelectedIndex = -1;
+        combo.Text = GetTrainerItemName(value);
+    }
+
+    private int GetTrainerItemComboValue(ComboBox combo)
+    {
+        if (combo.Items.Count != 0)
+            return Math.Clamp(combo.SelectedIndex, 0, itemlist.Length - 1);
+
+        return combo.Tag is int value
+            ? Math.Clamp(value, 0, itemlist.Length - 1)
+            : 0;
+    }
+
+    private string GetTrainerItemName(int value) => (uint)value < (uint)itemlist.Length ? itemlist[value] : $"Item {value}";
+
     private void EnsurePokemonEditorListsLoaded()
     {
         if (PokemonEditorListsLoaded)
@@ -764,13 +820,6 @@ public partial class BTTE : Form
         SetEntryTitleItems(CB_TrainerID, trName, Trainers.Length);
         SetEntryTitleItems(CB_Trainer_Class, trClass, trClass.Length);
 
-        SetComboItems(CB_Item_1, itemlist);
-        SetComboItems(CB_Item_2, itemlist);
-        SetComboItems(CB_Item_3, itemlist);
-        SetComboItems(CB_Item_4, itemlist);
-        SetComboItems(CB_Gift, itemlist);
-
-        SetMoneyItemsForLevel(0);
         CHK_CanMega.CheckedChanged += (s, e) => NUD_MegaForm.Visible = CHK_CanMega.Checked;
         NUD_MegaForm.Visible = false;
 
@@ -978,16 +1027,16 @@ public partial class BTTE : Form
         // Load Trainer Data
         CB_Trainer_Class.SelectedIndex = tr.Class;
         LoadTrainerClassBall();
-        CB_Item_1.SelectedIndex = tr.Item1;
-        CB_Item_2.SelectedIndex = tr.Item2;
-        CB_Item_3.SelectedIndex = tr.Item3;
-        CB_Item_4.SelectedIndex = tr.Item4;
+        SetTrainerItemComboValue(CB_Item_1, tr.Item1);
+        SetTrainerItemComboValue(CB_Item_2, tr.Item2);
+        SetTrainerItemComboValue(CB_Item_3, tr.Item3);
+        SetTrainerItemComboValue(CB_Item_4, tr.Item4);
         CB_Money.SelectedIndex = tr.Money;
         CB_Mode.SelectedIndex = (int)tr.Mode;
         LoadAIBits(tr.AI);
         if (tr is TrainerData7b b)
         {
-            CB_Gift.SelectedIndex = b.Gift;
+            SetTrainerItemComboValue(CB_Gift, b.Gift);
             NUD_GiftCount.Value = b.GiftQuantity;
         }
     }
@@ -1026,16 +1075,16 @@ public partial class BTTE : Form
     {
         tr.Class = CB_Trainer_Class.SelectedIndex;
         SaveTrainerClassBall(tr.Class);
-        tr.Item1 = CB_Item_1.SelectedIndex;
-        tr.Item2 = CB_Item_2.SelectedIndex;
-        tr.Item3 = CB_Item_3.SelectedIndex;
-        tr.Item4 = CB_Item_4.SelectedIndex;
+        tr.Item1 = GetTrainerItemComboValue(CB_Item_1);
+        tr.Item2 = GetTrainerItemComboValue(CB_Item_2);
+        tr.Item3 = GetTrainerItemComboValue(CB_Item_3);
+        tr.Item4 = GetTrainerItemComboValue(CB_Item_4);
         tr.Money = CB_Money.SelectedIndex;
         tr.Mode = (BattleMode)CB_Mode.SelectedIndex;
         tr.AI = SaveAIBits(tr.AI);
         if (tr is TrainerData7b b)
         {
-            b.Gift = CB_Gift.SelectedIndex;
+            b.Gift = GetTrainerItemComboValue(CB_Gift);
             b.GiftQuantity = (int)NUD_GiftCount.Value;
         }
     }

@@ -126,7 +126,8 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             Results.IntegralHeight = false;
             Results.ItemHeight = 22;
             Results.Margin = Padding.Empty;
-            Results.Click += (_, _) => CommitSelectedEntry();
+            Results.MouseClick += Results_MouseClick;
+            Results.MouseMove += Results_MouseMove;
             Results.KeyDown += Results_KeyDown;
             Results.DrawItem += DrawResultItem;
 
@@ -210,6 +211,7 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
         private void ShowMatches(IReadOnlyList<StandardValueEntry> matches, int preferredSelectionIndex)
         {
             Results.BeginUpdate();
+            Results.HoverIndex = -1;
             Results.Items.Clear();
             foreach (var match in matches)
                 Results.Items.Add(match);
@@ -361,6 +363,21 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             }
         }
 
+        private void Results_MouseClick(object? sender, MouseEventArgs e)
+        {
+            var index = Results.IndexFromPoint(e.Location);
+            if ((uint)index >= (uint)Results.Items.Count || Results.Items[index] is not StandardValueEntry entry)
+                return;
+
+            CommitEntry(entry);
+        }
+
+        private void Results_MouseMove(object? sender, MouseEventArgs e)
+        {
+            var index = Results.IndexFromPoint(e.Location);
+            Results.HoverIndex = (uint)index < (uint)Results.Items.Count ? index : -1;
+        }
+
         private void MoveSelection(int delta)
         {
             if (Results.Items.Count == 0)
@@ -396,6 +413,11 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             if (Results.SelectedItem is not StandardValueEntry entry)
                 return;
 
+            CommitEntry(entry);
+        }
+
+        private void CommitEntry(StandardValueEntry entry)
+        {
             SelectedValue = entry.Value;
             Committed = true;
             Service.CloseDropDown();
@@ -406,8 +428,11 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
                 return;
 
+            var hovered = listBox is SearchableValueListBox searchList && searchList.HoverIndex == e.Index;
             var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+            var backColor = selected
+                ? WinFormsTheme.SelectionBackground
+                : hovered ? WinFormsTheme.AlternateRowBackground : WinFormsTheme.InputBackground;
             var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
             using var background = new SolidBrush(backColor);
@@ -425,10 +450,39 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
 
     private sealed class SearchableValueListBox : ListBox
     {
+        private int hoverIndex = -1;
+
+        public int HoverIndex
+        {
+            get => hoverIndex;
+            set
+            {
+                if (hoverIndex == value)
+                    return;
+
+                var oldIndex = hoverIndex;
+                hoverIndex = value;
+                InvalidateItem(oldIndex);
+                InvalidateItem(hoverIndex);
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            HoverIndex = -1;
+            base.OnMouseLeave(e);
+        }
+
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
             Cursor.Current = Cursors.Default;
+        }
+
+        private void InvalidateItem(int index)
+        {
+            if ((uint)index < (uint)Items.Count)
+                Invalidate(GetItemRectangle(index));
         }
     }
 }

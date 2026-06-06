@@ -62,7 +62,8 @@ public sealed class SearchableComboBoxBehavior
         SearchList.ItemHeight = 22;
         SearchList.Visible = false;
         SearchList.DrawItem += DrawSearchListItem;
-        SearchList.Click += (_, _) => CommitSearchListSelection();
+        SearchList.MouseClick += SearchList_MouseClick;
+        SearchList.MouseMove += SearchList_MouseMove;
         SearchList.BeforeMouseWheel += SearchList_BeforeMouseWheel;
         SearchList.KeyDown += SearchList_KeyDown;
         SearchList.Leave += (_, _) => Owner.BeginInvoke((MethodInvoker)(() =>
@@ -134,6 +135,21 @@ public sealed class SearchableComboBoxBehavior
             e.Handled = true;
             e.SuppressKeyPress = true;
         }
+    }
+
+    private void SearchList_MouseClick(object? sender, MouseEventArgs e)
+    {
+        var index = SearchList.IndexFromPoint(e.Location);
+        if ((uint)index >= (uint)SearchList.Items.Count || SearchList.Items[index] is not ComboEntry entry)
+            return;
+
+        CommitSearchListEntry(entry);
+    }
+
+    private void SearchList_MouseMove(object? sender, MouseEventArgs e)
+    {
+        var index = SearchList.IndexFromPoint(e.Location);
+        SearchList.HoverIndex = (uint)index < (uint)SearchList.Items.Count ? index : -1;
     }
 
     private void HandleDeleteKey(KeyEventArgs e)
@@ -216,6 +232,7 @@ public sealed class SearchableComboBoxBehavior
             Owner.Controls.Add(SearchList);
 
         SearchList.BeginUpdate();
+        SearchList.HoverIndex = -1;
         SearchList.Items.Clear();
         foreach (var match in matches)
             SearchList.Items.Add(match);
@@ -243,13 +260,22 @@ public sealed class SearchableComboBoxBehavior
         SearchList.TopIndex = Math.Clamp(selectedIndex - visibleRows / 2, 0, Math.Max(0, matches.Count - visibleRows));
     }
 
-    private void HideSearchList() => SearchList.Visible = false;
+    private void HideSearchList()
+    {
+        SearchList.HoverIndex = -1;
+        SearchList.Visible = false;
+    }
 
     private void CommitSearchListSelection()
     {
         if (SearchList.SelectedItem is not ComboEntry entry)
             return;
 
+        CommitSearchListEntry(entry);
+    }
+
+    private void CommitSearchListEntry(ComboEntry entry)
+    {
         HideSearchList();
         Combo.Focus();
         SelectIndex(entry.Index);
@@ -378,13 +404,16 @@ public sealed class SearchableComboBoxBehavior
         if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
             return;
 
-        DrawTextItem(e, listBox.Items[e.Index]?.ToString() ?? string.Empty, 4);
+        var hovered = listBox is SearchListBox searchList && searchList.HoverIndex == e.Index;
+        DrawTextItem(e, listBox.Items[e.Index]?.ToString() ?? string.Empty, 4, hovered);
     }
 
-    private static void DrawTextItem(DrawItemEventArgs e, string text, int leftPadding)
+    private static void DrawTextItem(DrawItemEventArgs e, string text, int leftPadding, bool hovered = false)
     {
         var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var backColor = selected
+            ? WinFormsTheme.SelectionBackground
+            : hovered ? WinFormsTheme.AlternateRowBackground : WinFormsTheme.InputBackground;
         var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
         using var background = new SolidBrush(backColor);
@@ -407,7 +436,30 @@ public sealed class SearchableComboBoxBehavior
     private sealed class SearchListBox : ListBox
     {
         private const int WM_MOUSEWHEEL = 0x020A;
+        private int hoverIndex = -1;
+
         public event EventHandler<SearchMouseWheelEventArgs>? BeforeMouseWheel;
+
+        public int HoverIndex
+        {
+            get => hoverIndex;
+            set
+            {
+                if (hoverIndex == value)
+                    return;
+
+                var oldIndex = hoverIndex;
+                hoverIndex = value;
+                InvalidateItem(oldIndex);
+                InvalidateItem(hoverIndex);
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            HoverIndex = -1;
+            base.OnMouseLeave(e);
+        }
 
         protected override void WndProc(ref Message m)
         {
@@ -415,6 +467,12 @@ public sealed class SearchableComboBoxBehavior
                 return;
 
             base.WndProc(ref m);
+        }
+
+        private void InvalidateItem(int index)
+        {
+            if ((uint)index < (uint)Items.Count)
+                Invalidate(GetItemRectangle(index));
         }
 
         private bool HandleMouseWheelMessage(IntPtr wParam)
