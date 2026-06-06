@@ -15,6 +15,7 @@ The final working path proved that I can:
 - give it a virtual inventory count so the bag UI remains usable;
 - bypass the Exp Candy XL fixed-EXP behavior that normally owns item id `1128`;
 - compute a runtime story cap from flag/work state;
+- grant the item during the fresh-new-game Bag pickup event through a patched AMX script;
 - write a patched `exefs/main` NSO back out as LayeredFS output;
 - bring the workflow into pkNX through Royal editor tools.
 
@@ -316,6 +317,27 @@ The level cap ladder could not be based only on badge flags or trainer IDs. The 
 
 The runtime helper checks milestones from highest cap down. The first unlocked milestone wins. That makes later story state override earlier state naturally.
 
+### Breakthrough 8: The Bag Event Can Grant A Real Key Item
+
+The acquisition problem was separate from the item behavior problem. Virtual ownership and virtual count could make the bag helpers claim Royal Candy existed, but the Key Items pocket still needed a concrete saved item entry if I wanted normal inventory persistence.
+
+The working acquisition hook is in `main_event_0020.amx`, the Bag pickup event. I patched that script so a fresh new game receives Royal Candy as part of the Bag event sequence.
+
+The first attempt failed in a useful way. I redirected a no-op call to cell `3881`, which looked unused from a direct-call scan. The game froze before the Bag text box. Later inspection showed why: cell `3881` was not dead code. It was a live dispatcher procedure with `GENARRAY`, `SWITCH`, and `CASETBL` structure. It could be reached through AMX switch/event flow even though my simple direct-call search did not see it.
+
+The fixed version appends a new procedure at the old code/data boundary instead of overwriting a suspicious existing procedure. The Bag event already had a no-op local call at cell `5020`. I retarget that call to the appended procedure, then let the vanilla script continue. The appended procedure calls the same add-item native shape used by `init_scr.amx` for starter inventory:
+
+```text
+PROC
+PUSHM.P.C 1
+PUSHM.P.C 1128
+SYSREQ.N 0x8D631FFE, parameter bytes 16
+ZERO.pri
+RETN
+```
+
+That was tested in-game. Loading an older pre-Bag save did not show the item, likely because that save was already inside or past the relevant event state. Starting a completely fresh new game did show Royal Candy after the Bag event. That proves the AMX grant works for the intended new-game flow.
+
 ## AMX Script Research
 
 Sword/Shield story scripts are Pawn AMX files. That mattered because I could not treat them like plain text bytecode.
@@ -331,6 +353,66 @@ The useful AMX facts were:
 I parsed enough AMX structure to stop treating the files as random bytes. That helped explain why simple `rg` searches for trainer names, trainer hashes, or full flag hashes did not find the whole answer.
 
 The key lesson was that story event names and script IDs are still useful even when the exact native calls are not immediately readable. `main_event_0110`, `main_event_0280`, and later event IDs line up with known progression flags and trainer sequences. That gave me a story timeline to compare against saves and flagwork.
+
+### AMX Progress
+
+The AMX tooling is no longer only a reader. It can now do a limited, validated compact-AMX rewrite for the Bag event.
+
+The current AMX patcher can:
+
+- read the AMX header;
+- detect 64-bit compact Pawn AMX;
+- expand compact code/data memory into cells;
+- read native import hashes;
+- validate expected cells and native imports;
+- append new code cells before the data section;
+- adjust `DAT`, `HEA`, and `STP`;
+- recompress compact AMX;
+- re-expand the generated file and verify the expanded memory matches what I intended to write.
+
+This is still not a full script decompiler. It does not assign friendly names to every native call, reconstruct high-level Pawn source, or understand every public/event entry path. But it is enough for controlled patches where I know the script, cells, native import table, and exact insertion point.
+
+### Cells, Code Spacing, And Landing Pads
+
+AMX code is cell-based. In Sword/Shield's 64-bit AMX files, one cell is eight bytes. Some instructions are a single cell. Others use one or more following cells as operands. Packed instructions can store an opcode and operand inside the same 64-bit cell.
+
+That means "I need eight cells" is different from "I need eight bytes." The Royal Candy Bag grant needs eight cells, or `0x40` bytes of expanded AMX memory:
+
+```text
+0: PROC
+1: PUSHM.P.C 1
+2: PUSHM.P.C 1128
+3: SYSREQ.N
+4: native index
+5: parameter byte count
+6: ZERO.pri
+7: RETN
+```
+
+A landing pad is only safe if the script runtime can branch or call into it and the cells there really are executable code for that purpose. The unsafe cell `3881` looked like an unused `PROC`, but it was actually reachable through switch/dispatcher control flow. That made it a bad landing pad.
+
+The safer landing pad is appended at the end of the code section. I am not stealing existing script code. I add new cells where no old instruction can already depend on them, then retarget a known vanilla no-op call to the new procedure.
+
+### AMX Header Size Limits
+
+The AMX header has explicit bounds:
+
+- `COD`: start of code;
+- `DAT`: start of data;
+- `HEA`: heap start/end of initialized data;
+- `STP`: stack top;
+- `CIP`: initial instruction pointer;
+- public/native/library/pubvar/tag/name tables before `COD`.
+
+For the Bag patch, I do not change `COD`, `CIP`, or the native table layout. I append code cells at the old `DAT`, then move `DAT`, `HEA`, and `STP` forward by `0x40`.
+
+That means the patch changes the expanded AMX memory layout, but in a very small and controlled way. I am not aware of a practical header size limit hit by this patch. The important constraint is not "can the header represent this?" It can. The important constraint is whether code/data references remain valid after shifting the data section. The Bag event patch was tested in-game and did not break the fresh-new-game event path, but broader AMX insertion should still be treated carefully because data references may exist in other scripts.
+
+### Why Existing Save Tests Can Mislead
+
+The pre-Bag save test did not prove the Bag patch failed. The fresh-new-game test proved the opposite: the patch works when the event runs from the beginning.
+
+Story scripts can have state already queued, cached, or partially advanced in a save. A save that visually appears to be "before Bag pickup" can still resume after the exact call I patched. For acquisition testing, a clean new game is the better proof for this specific hook.
 
 ## Flagwork Research
 
@@ -418,6 +500,75 @@ The ExeFS patcher uses small ARM64 stubs in zero-filled code caves. The pattern 
 6. write the NSO back with updated hashes.
 
 This is why validation is non-negotiable. If the user's `main` is a different build or already patched, the expected instruction may not match. A blind write at a hardcoded offset could corrupt the executable. The Patch Manager exists to make that risk visible before a mutating build.
+
+### Candy Creation Hook
+
+The "creation" side is really a RomFS plus ExeFS pair.
+
+RomFS creates the Royal Candy item shell:
+
+- item id `1128` is cloned from a safe template;
+- it is moved to Key Items;
+- it gets Rare Candy-style usable-on-Pokemon metadata;
+- it receives unique item-row storage instead of sharing a dummy row;
+- message files are patched to show `Royal Candy`;
+- test shop inventories can include the item.
+
+ExeFS then teaches the game what that shell should do. The Rare Candy route hook checks for item id `1128` alongside vanilla Rare Candy id `50`. The Exp Candy bypass keeps id `1128` out of the fixed Exp Candy XL behavior. The non-consumption hook makes the use quantity zero for Royal Candy. The cap helper computes the current story cap at runtime.
+
+That is why I think of this as a behavior hook, not only an item edit. The item row is the shell. The executable patches are the behavior.
+
+### Candy Appearing In Bag Hook
+
+The "appearing in bag" hook is the AMX Bag event patch, not the ExeFS route hook.
+
+The ExeFS route hook makes Royal Candy usable once it exists. It does not by itself create a saved inventory entry. The Bag event patch creates the saved entry by calling the script add-item native during the fresh-new-game Bag pickup event.
+
+The current build still keeps virtual ownership/count support because it helps the UI and protects the item-use flow. But the real acquisition proof is the AMX grant in `main_event_0020.amx`.
+
+### ExeFS Cramping
+
+The hardest practical problem in `exefs/main` is not always finding logic. Sometimes it is finding space.
+
+The `.text` segment is full of real executable code. I cannot simply make a function longer in place unless I move surrounding code, rebuild branch targets, and understand relocation-like references. For this project, I chose the safer pattern: overwrite only a tiny anchor instruction with a branch, then place custom code in zero-filled code caves.
+
+The cap ladder is cave-hungry. Every milestone needs several small chunks because each chunk must fit branch ranges and keep registers/flow predictable. As the number of milestones grew, the available nearby caves became cramped. That forced the custom code to stay small, split into chained chunks, and reuse patterns aggressively.
+
+### Identifying Caves
+
+The patcher searches for aligned zero-filled runs inside the decompressed `.text` segment. A cave must be:
+
+- zero-filled;
+- four-byte aligned;
+- large enough for the planned ARM64 instruction count;
+- within branch range of the anchor when a conditional branch needs to reach it;
+- not already reserved by an earlier patch chunk in the same build.
+
+The cave allocator marks used caves with real instructions or `NOP`s so later allocations do not accidentally overlap them. That matters because the Infinite Rare Candy patch uses many tiny caves. Overlapping two stubs would produce a build that might still write successfully but behave unpredictably.
+
+### Maintaining Cave-Friendly Custom Code
+
+The custom ARM64 code is intentionally small and repetitive.
+
+I try to keep stubs cave-friendly by:
+
+- using short dispatch stubs that compare one item id and branch;
+- replaying overwritten vanilla instructions in tiny trampoline caves;
+- avoiding large embedded tables when a chain of small checks will do;
+- splitting the cap ladder into milestone chunks;
+- using `MOVZ`/`MOVK` only where a full 64-bit hash is required;
+- validating every anchor instruction before patching;
+- writing generated notes that list which offsets were used.
+
+This is not the prettiest way to write code if I were compiling from source. It is the safer way to write patches into an existing game binary.
+
+### `main` File Size Limits
+
+For the current ExeFS path, I do not append to `main`. I rewrite bytes inside the decompressed `.text` segment, then let the NSO writer recompress the segment and update hashes.
+
+That avoids a large class of file-size problems. The custom code has to fit inside existing zero-filled space in `.text`. If there are no caves left, the patch fails instead of increasing the executable layout.
+
+There may be practical compressed-size and loader constraints for larger NSO rewrites, but Infinite Rare Candy does not rely on growing the executable. The working rule is simpler: if the cave allocator cannot find enough safe space, the build should stop and say so.
 
 ### Important ARM64 Helpers
 
@@ -530,6 +681,7 @@ Candy Builder is the mutating editor. It can validate or build a LayeredFS outpu
 - non-consumption behavior;
 - virtual count;
 - story-cap ladder;
+- Bag pickup AMX grant for fresh-new-game acquisition;
 - optional max-cap probe mode;
 - generated notes and README.
 
@@ -551,6 +703,7 @@ The Infinite Rare Candy project overlaps the Royal editor integration PRs:
 | #26 | Add Royal Sword Save Inspector | Added save-state validation for the cap ladder. |
 | #27 | Add Royal Sword Patch Manager | Added read-only ExeFS validation for patch anchors and code caves. |
 | #28 | Add Royal Sword Candy Builder | Added the mutating LayeredFS builder for Infinite Rare Candy output. |
+| #29 | Document Infinite Rare Candy wiki | Added the first long-form technical wiki page for this project. |
 
 ## Why This Was Difficult
 
@@ -604,7 +757,7 @@ The UI text still uses Royal Candy naming in the generated output. That can be r
 
 Patch Manager is still read-only. That is intentional for now. Candy Builder writes the known Infinite Rare Candy output, while Patch Manager validates anchors and build state. Later, Patch Manager can become a broader ExeFS patch enable/disable surface.
 
-The AMX parser is not a complete script decompiler. It is good enough to inspect headers, script presence, and references, but full Pawn bytecode understanding would be a separate project.
+The AMX tooling is not a complete script decompiler. It is now good enough to inspect headers, native imports, script presence, references, and perform the specific validated Bag-event grant patch. Full Pawn bytecode decompilation would still be a separate project.
 
 The current ExeFS patch is build-specific. If another Sword/Shield build changes instruction offsets, the validator should fail rather than write.
 

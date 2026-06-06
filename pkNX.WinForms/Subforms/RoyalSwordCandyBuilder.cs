@@ -32,6 +32,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private readonly CheckBox InfiniteUseCheck = new();
     private readonly CheckBox StoryLadderCheck = new();
     private readonly CheckBox VirtualCountCheck = new();
+    private readonly CheckBox BagGrantCheck = new();
     private readonly CheckBox MaxCapCheck = new();
     private readonly NumericUpDown VirtualCountBox = new();
     private readonly NumericUpDown MaxCapBox = new();
@@ -82,7 +83,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             Padding = new Padding(10),
             RowCount = 4,
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 174));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
@@ -91,7 +92,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         {
             ColumnCount = 8,
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 4,
         };
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
@@ -101,6 +102,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
         settings.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+        settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -117,6 +119,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         ConfigureCheck(InfiniteUseCheck, "Infinite Use", true, "Keep Royal Candy from decrementing after use.");
         ConfigureCheck(StoryLadderCheck, "Story Ladder", true, "Use the Royal Sword story cap ladder instead of a fixed cap.");
         ConfigureCheck(VirtualCountCheck, "Virtual Count", true, "Report a virtual inventory count for Royal Candy in the bag UI.");
+        ConfigureCheck(BagGrantCheck, "Bag Grant", true, "Patch the Bag pickup event so a new game receives Royal Candy.");
         ConfigureCheck(MaxCapCheck, "Max Cap", false, "Generate a diagnostic output capped at this milestone.");
         MaxCapCheck.CheckedChanged += (_, _) => MaxCapBox.Enabled = MaxCapCheck.Checked;
 
@@ -147,9 +150,11 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         settings.Controls.Add(VirtualCountBox, 2, 2);
         settings.Controls.Add(MaxCapCheck, 3, 2);
         settings.Controls.Add(MaxCapBox, 4, 2);
-        var outputNote = CreateLabel("RomFS and ExeFS are written into the selected LayeredFS output folder.");
-        settings.Controls.Add(outputNote, 5, 2);
-        settings.SetColumnSpan(outputNote, 3);
+        settings.Controls.Add(BagGrantCheck, 5, 2);
+        settings.SetColumnSpan(BagGrantCheck, 3);
+        var outputNote = CreateLabel("RomFS, scripts, and ExeFS are written into the selected LayeredFS output folder.");
+        settings.Controls.Add(outputNote, 0, 3);
+        settings.SetColumnSpan(outputNote, 8);
 
         var actions = new FlowLayoutPanel
         {
@@ -223,7 +228,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private string GetDefaultOutputPath()
     {
         var root = Directory.GetParent(RomFsPath)?.FullName ?? RomFsPath;
-        return Path.Combine(root, "royal-candy-1128-royal-sword-full-ladder");
+        return Path.Combine(root, "royal-candy-1128-bag-event-grant");
     }
 
     private void BrowseOutput()
@@ -293,7 +298,8 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             StoryLadderCheck.Checked,
             InfiniteUseCheck.Checked,
             VirtualCountCheck.Checked ? (int)VirtualCountBox.Value : null,
-            MaxCapCheck.Checked ? (int)MaxCapBox.Value : null);
+            MaxCapCheck.Checked ? (int)MaxCapBox.Value : null,
+            BagGrantCheck.Checked);
     }
 
     private void OpenOutput()
@@ -438,6 +444,7 @@ internal static class RoyalCandyLayeredFsBuilder
             $"Template item id: {options.TemplateItemId}",
             $"Output: {options.OutputPath}",
             $"Max story cap: {(options.MaxStoryCap is { } cap ? cap.ToString(CultureInfo.InvariantCulture) : "full ladder")}",
+            $"Bag pickup grant: {(options.GrantOnBagEvent ? "enabled" : "disabled")}",
             "",
         };
 
@@ -449,6 +456,9 @@ internal static class RoyalCandyLayeredFsBuilder
             PatchItemText(options, results, notes);
             PatchShopData(options, results, notes);
         }
+
+        if (options.GrantOnBagEvent)
+            PatchBagEventScript(options, results, notes);
 
         if (options.BuildExeFs)
             PatchExeFsMain(options, results, notes);
@@ -644,6 +654,17 @@ internal static class RoyalCandyLayeredFsBuilder
         items.Add(itemId);
         notes.Add($"- Added to {label}. New inventory: {string.Join(", ", items)}");
         return true;
+    }
+
+    private static void PatchBagEventScript(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        if (options.ItemId != RoyalCandyItemId)
+            throw new InvalidOperationException("The Royal Candy Bag-event grant currently targets item id 1128 only.");
+
+        var patchNotes = RoyalSwordScriptAmxPatcher.PatchBagEventRoyalCandyGrant(options.RomFsPath, options.OutputPath, options.ItemId);
+
+        results.Add(new("Pass", "RomFS", "romfs/bin/script/amx/main_event_0020.amx", "Bag pickup script grant generated."));
+        notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
     }
 
     private static void PatchExeFsMain(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
@@ -1348,6 +1369,7 @@ internal static class RoyalCandyLayeredFsBuilder
             options.BuildRomFs ? "- `romfs/bin/pml/item/item.dat`: Royal Candy item metadata." : "- RomFS item output disabled.",
             options.BuildRomFs ? "- `romfs/bin/message/*/common/itemname*.dat` and `iteminfo.dat`: Royal Candy text." : "- RomFS text output disabled.",
             options.BuildRomFs ? "- `romfs/bin/appli/shop/bin/shop_data.bin`: Poke Mart test acquisition entries." : "- RomFS shop output disabled.",
+            options.GrantOnBagEvent ? "- `romfs/bin/script/amx/main_event_0020.amx`: Bag pickup event grants Royal Candy in a fresh new game." : "- Bag pickup script grant disabled.",
             options.BuildExeFs ? "- `exefs/main`: Royal Candy route, non-consumption, virtual count, and cap helper patch." : "- ExeFS output disabled.",
             "",
             "Build log:",
@@ -1399,7 +1421,8 @@ internal sealed record RoyalCandyBuildOptions(
     bool StoryCapLadder,
     bool InfiniteUse,
     int? VirtualCount,
-    int? MaxStoryCap);
+    int? MaxStoryCap,
+    bool GrantOnBagEvent);
 
 internal sealed record RoyalCandyBuildSummary(IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
 internal sealed record BuildResult(string Status, string Area, string Output, string Message);
