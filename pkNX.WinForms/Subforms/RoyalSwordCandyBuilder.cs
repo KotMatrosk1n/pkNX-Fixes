@@ -1020,11 +1020,10 @@ internal static class RoyalCandyLayeredFsBuilder
         }
 
         var restoredRecords = RestoreRoyalCandyRomFsToVanilla(options, results, notes, changedDirectories);
-        var identicalFilesRemoved = RemoveLayeredFilesMatchingBaseDump(options, results, notes, changedDirectories);
 
         var removedDirectories = PruneEmptyOutputDirectories(options.OutputPath, changedDirectories);
-        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), removed {identicalFilesRemoved:N0} vanilla-identical layered file(s), and removed {removedDirectories:N0} empty folder(s)."));
-        notes.Add($"- Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), removed {identicalFilesRemoved:N0} vanilla-identical layered file(s), and removed {removedDirectories:N0} empty folder(s).");
+        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), and removed {removedDirectories:N0} empty folder(s)."));
+        notes.Add($"- Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), and removed {removedDirectories:N0} empty folder(s).");
         return new(results, notes);
     }
 
@@ -3227,44 +3226,6 @@ internal static class RoyalCandyLayeredFsBuilder
         if (Path.GetDirectoryName(outputPath) is { } directory)
             changedDirectories.Add(directory);
         notes.Add($"- Updated {relativePath}; Royal Candy-owned records were restored while unrelated layered data was preserved.");
-    }
-
-    private static int RemoveLayeredFilesMatchingBaseDump(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
-    {
-        if (!Directory.Exists(options.OutputPath))
-            return 0;
-
-        var removed = 0;
-        foreach (var outputPath in Directory.EnumerateFiles(options.OutputPath, "*", SearchOption.AllDirectories).ToArray())
-        {
-            var relativePath = Path.GetRelativePath(options.OutputPath, outputPath).Replace(Path.DirectorySeparatorChar, '/');
-            var basePath = GetBasePathForLayeredRelativePath(options, relativePath);
-            if (basePath is null || !File.Exists(basePath))
-                continue;
-
-            if (!FilesAreEqual(outputPath, basePath))
-                continue;
-
-            File.Delete(outputPath);
-            removed++;
-            if (Path.GetDirectoryName(outputPath) is { } directory)
-                changedDirectories.Add(directory);
-            notes.Add($"- Removed {relativePath}; layered file matched the base dump exactly.");
-        }
-
-        results.Add(new(removed == 0 ? "Info" : "Pass", "Uninstall", options.OutputPath, removed == 0 ? "No vanilla-identical layered files remained after uninstall." : $"Removed {removed:N0} vanilla-identical layered file(s)."));
-        return removed;
-    }
-
-    private static string? GetBasePathForLayeredRelativePath(RoyalCandyBuildOptions options, string relativePath)
-    {
-        const string RomFsPrefix = "romfs/";
-        const string ExeFsPrefix = "exefs/";
-        if (relativePath.StartsWith(RomFsPrefix, StringComparison.OrdinalIgnoreCase))
-            return GetBaseRomFsPath(options, relativePath[RomFsPrefix.Length..]);
-        if (relativePath.StartsWith(ExeFsPrefix, StringComparison.OrdinalIgnoreCase))
-            return GetBaseExeFsPath(options, relativePath[ExeFsPrefix.Length..]);
-        return null;
     }
 
     private static bool FilesAreEqual(string leftPath, string rightPath)

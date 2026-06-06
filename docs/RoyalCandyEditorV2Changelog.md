@@ -92,7 +92,7 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - item name/description text restores only line `1128`;
   - shop inventories, raid rewards, and placement pickups restore only entries whose base value is the repurposed source item and whose layered value matches the Royal Candy cleanup replacement;
   - the Bag-event AMX overlay is removed only when it exactly matches the clean generated Royal Candy patch, leaving custom script overlays untouched.
-  - after uninstall restores Royal Candy data, the builder sweeps the selected LayeredFS root and removes any remaining `romfs` or `exefs` overlay file that is byte-identical to the base dump, then prunes the empty folders left behind.
+  - uninstall does not sweep unrelated LayeredFS files merely because they are byte-identical to the base dump; non-Royal files in a shared mod folder are treated as user-owned output.
 - Consolidated generated text output:
   - new builds write a single `RoyalSword_RoyalCandy.txt` marker at the selected LayeredFS output root;
   - technical patch details stay in the Royal Candy editor log instead of being written as separate note files;
@@ -101,4 +101,5 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - item generation no longer mutates the original shared item raw row before appending the Royal Candy row;
   - uninstall restores item `1128` raw-row bytes exactly before trimming/removing overlays;
   - text, raid reward, and placement overlays are removed when they match Royal Candy-generated or restored Royal Candy cleanup states, even when container serialization bytes differ from the original dump;
-  - uninstall can now clean orphaned Royal Candy RomFS leftovers after `exefs/main` has already been removed.
+  - uninstall can now clean orphaned Royal Candy RomFS leftovers after `exefs/main` has already been removed;
+  - the global vanilla-identical overlay sweep was removed so uninstall cannot delete unrelated user-owned files from the selected mod folder.
