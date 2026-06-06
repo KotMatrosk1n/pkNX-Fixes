@@ -38,3 +38,8 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - warns before writing RomFS, AMX, and ExeFS output;
   - moves the cap ladder into editable milestone definitions with ascending-value validation;
   - displays Gordie or Melony according to the selected game version.
+- Added source acquisition cleanup for the repurposed item:
+  - removes the original source item from shop inventories;
+  - replaces raid bonus reward entries with regular Rare Candy;
+  - replaces hidden-item placement hashes with regular Rare Candy while preserving quantity and chance;
+  - writes `royal_candy_source_cleanup_notes.txt` into generated output so the exact cleanup actions are inspectable.

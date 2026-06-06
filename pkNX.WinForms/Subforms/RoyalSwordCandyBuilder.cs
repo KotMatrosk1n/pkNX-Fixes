@@ -652,12 +652,13 @@ internal static class RoyalCandyLayeredFsBuilder
     private const int RareCandyUiHookCodeCaveSearchStart = 0x007BC338;
     private const int KeyItemType = 9;
     private const byte KeyItemTypeByte = KeyItemType;
-    private const ulong EarlyPokeMartHash = 0x1F3FF031A3A24490;
-    private const ulong BadgePokeMartInventoryHash = 0x66CA73B2966BB871;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
     private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
     private const string ItemPath = "bin/pml/item/item.dat";
+    private const string ItemHashPath = "bin/pml/item/item_hash_to_index.dat";
     private const string ShopPath = "bin/appli/shop/bin/shop_data.bin";
+    private const string NestDataPath = "bin/archive/field/resident/data_table.gfpak";
+    private const string PlacementPath = "bin/archive/field/resident/placement.gfpak";
     private const string MessageRoot = "bin/message";
     private const string ItemInfoFile = "iteminfo.dat";
     private const string RoyalCandyName = "Royal Candy";
@@ -689,7 +690,7 @@ internal static class RoyalCandyLayeredFsBuilder
         {
             PatchItemData(options, results, notes);
             PatchItemText(options, results, notes);
-            PatchShopData(options, results, notes);
+            PatchSourceItemAcquisitionData(options, results, notes);
         }
 
         if (options.GrantOnBagEvent)
@@ -819,76 +820,230 @@ internal static class RoyalCandyLayeredFsBuilder
         return true;
     }
 
-    private static void PatchShopData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    private static void PatchSourceItemAcquisitionData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        var cleanupNotes = new List<string>
+        {
+            "Royal Candy source acquisition cleanup",
+            "======================================",
+            "",
+            $"Repurposed source item id: {options.ItemId}",
+            $"Replacement item id: {RareCandyItemId} (regular Rare Candy)",
+            "",
+        };
+
+        var shopRemovals = PatchSourceShopData(options, results, cleanupNotes);
+        var raidReplacements = PatchSourceRaidRewards(options, results, cleanupNotes);
+        var placementReplacements = PatchSourcePlacementItems(options, results, cleanupNotes);
+        var totalChanges = shopRemovals + raidReplacements + placementReplacements;
+
+        File.WriteAllText(Path.Combine(options.OutputPath, "royal_candy_source_cleanup_notes.txt"), string.Join(Environment.NewLine, cleanupNotes));
+        results.Add(new(totalChanges == 0 ? "Warning" : "Pass", "RomFS", "royal_candy_source_cleanup_notes.txt", $"Cleaned {totalChanges:N0} vanilla acquisition entr{(totalChanges == 1 ? "y" : "ies")} for source item {options.ItemId}."));
+        notes.Add(totalChanges == 0
+            ? $"- Source acquisition cleanup found no vanilla item {options.ItemId} entries to change."
+            : $"- Cleaned {totalChanges:N0} vanilla item {options.ItemId} acquisition entr{(totalChanges == 1 ? "y" : "ies")}; hidden pickups and raid rewards become regular Rare Candy.");
+    }
+
+    private static int PatchSourceShopData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
     {
         var sourcePath = GetRomFsPath(options.RomFsPath, ShopPath);
         if (!File.Exists(sourcePath))
         {
-            results.Add(new("Warning", "RomFS", "romfs/" + ShopPath, "shop_data.bin was not found; shop patch skipped."));
-            notes.Add("- Shop patch skipped because shop_data.bin was not found.");
-            return;
+            results.Add(new("Warning", "RomFS", "romfs/" + ShopPath, "shop_data.bin was not found; shop cleanup skipped."));
+            cleanupNotes.Add("- Shop cleanup skipped because shop_data.bin was not found.");
+            return 0;
         }
 
         var shop = FlatBufferConverter.DeserializeFrom<SwShShopInventory>(File.ReadAllBytes(sourcePath));
-        var shopNotes = new List<string>
+        var removals = 0;
+
+        foreach (var single in shop.Single)
+            removals += RemoveFromInventory(single.Inventories.Items, options.ItemId, cleanupNotes, $"single shop 0x{single.Hash:X16}");
+        foreach (var multi in shop.Multi)
         {
-            "Royal Candy shop patch",
-            "======================",
-            "",
-            $"Inserted item id: {options.ItemId}",
-            "",
-        };
-
-        var changed = false;
-        changed |= AddToSingleShop(shop, EarlyPokeMartHash, options.ItemId, shopNotes, "Poke Mart [0 Badges, Before Catching Tutorial]");
-        changed |= AddToAllMultiShopInventories(shop, BadgePokeMartInventoryHash, options.ItemId, shopNotes, "Poke Mart Inventories");
-
-        WriteOutputBytes(options.OutputPath, "romfs/" + ShopPath, changed ? shop.SerializeFrom() : File.ReadAllBytes(sourcePath));
-        File.WriteAllText(Path.Combine(options.OutputPath, "royal_candy_shop_notes.txt"), string.Join(Environment.NewLine, shopNotes));
-
-        results.Add(new(changed ? "Pass" : "Warning", "RomFS", "romfs/" + ShopPath, changed ? "Royal Candy added to Poke Mart inventories." : "No matching shop inventories were found."));
-        notes.Add(changed ? "- Added Royal Candy to early Poke Mart inventories." : "- Shop data copied unchanged because no matching Poke Mart inventories were found.");
-    }
-
-    private static bool AddToSingleShop(SwShShopInventory shop, ulong hash, int itemId, List<string> notes, string label)
-    {
-        var target = shop.Single.FirstOrDefault(z => z.Hash == hash);
-        if (target is null)
-        {
-            notes.Add($"- Missing single shop: {label} [{hash:X16}]");
-            return false;
+            for (var i = 0; i < multi.Inventories.Count; i++)
+                removals += RemoveFromInventory(multi.Inventories[i].Items, options.ItemId, cleanupNotes, $"multi shop 0x{multi.Hash:X16} inventory {i}");
         }
 
-        return AddToInventory(target.Inventories.Items, itemId, notes, label);
+        if (removals != 0)
+            WriteOutputBytes(options.OutputPath, "romfs/" + ShopPath, shop.SerializeFrom());
+
+        results.Add(new(removals == 0 ? "Info" : "Pass", "RomFS", "romfs/" + ShopPath, removals == 0 ? "No source item shop entries found." : $"Removed {removals:N0} source item shop entr{(removals == 1 ? "y" : "ies")}."));
+        return removals;
     }
 
-    private static bool AddToAllMultiShopInventories(SwShShopInventory shop, ulong hash, int itemId, List<string> notes, string label)
+    private static int PatchSourceRaidRewards(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
     {
-        var target = shop.Multi.FirstOrDefault(z => z.Hash == hash);
-        if (target is null)
+        var sourcePath = GetRomFsPath(options.RomFsPath, NestDataPath);
+        if (!File.Exists(sourcePath))
         {
-            notes.Add($"- Missing multi shop: {label} [{hash:X16}]");
-            return false;
+            results.Add(new("Warning", "RomFS", "romfs/" + NestDataPath, "data_table.gfpak was not found; raid reward cleanup skipped."));
+            cleanupNotes.Add("- Raid reward cleanup skipped because data_table.gfpak was not found.");
+            return 0;
         }
 
-        var changed = false;
-        for (var i = 0; i < target.Inventories.Count; i++)
-            changed |= AddToInventory(target.Inventories[i].Items, itemId, notes, $"{label} [{i} Badge{(i == 1 ? "" : "s")}]");
+        var dataTable = new GFPack(File.ReadAllBytes(sourcePath));
+        var replacements = 0;
+        replacements += ReplaceNestRewardItems(dataTable, "nest_hole_drop_rewards.bin", options.ItemId, RareCandyItemId, cleanupNotes);
+        replacements += ReplaceNestRewardItems(dataTable, "nest_hole_bonus_rewards.bin", options.ItemId, RareCandyItemId, cleanupNotes);
 
-        return changed;
+        if (replacements != 0)
+            WriteOutputBytes(options.OutputPath, "romfs/" + NestDataPath, dataTable.Write());
+
+        results.Add(new(replacements == 0 ? "Info" : "Pass", "RomFS", "romfs/" + NestDataPath, replacements == 0 ? "No source item raid reward entries found." : $"Replaced {replacements:N0} raid reward entr{(replacements == 1 ? "y" : "ies")} with regular Rare Candy."));
+        return replacements;
     }
 
-    private static bool AddToInventory(IList<int> items, int itemId, List<string> notes, string label)
+    private static int ReplaceNestRewardItems(GFPack dataTable, string fileName, int sourceItemId, int replacementItemId, List<string> cleanupNotes)
     {
-        if (items.Contains(itemId))
+        if (dataTable.GetIndexFileName(fileName) < 0)
         {
-            notes.Add($"- Already present: {label}");
-            return false;
+            cleanupNotes.Add($"- Raid reward file not found: {fileName}");
+            return 0;
         }
 
-        items.Add(itemId);
-        notes.Add($"- Added to {label}. New inventory: {string.Join(", ", items)}");
-        return true;
+        var archive = FlatBufferConverter.DeserializeFrom<NestHoleRewardArchive>(dataTable.GetDataFileName(fileName));
+        var replacements = 0;
+        foreach (var (table, tableIndex) in archive.Table.Select((table, index) => (table, index)))
+        {
+            foreach (var reward in table.Entries)
+            {
+                if (reward.ItemID != sourceItemId)
+                    continue;
+
+                reward.ItemID = (uint)replacementItemId;
+                replacements++;
+                cleanupNotes.Add($"- {fileName}: table {tableIndex} [0x{table.TableID:X16}] entry {reward.EntryID} now awards regular Rare Candy.");
+            }
+        }
+
+        if (replacements != 0)
+            dataTable.SetDataFileName(fileName, archive.SerializeFrom());
+
+        return replacements;
+    }
+
+    private static int PatchSourcePlacementItems(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
+    {
+        var placementPath = GetRomFsPath(options.RomFsPath, PlacementPath);
+        if (!File.Exists(placementPath))
+        {
+            results.Add(new("Warning", "RomFS", "romfs/" + PlacementPath, "placement.gfpak was not found; placement item cleanup skipped."));
+            cleanupNotes.Add("- Placement item cleanup skipped because placement.gfpak was not found.");
+            return 0;
+        }
+
+        var hashes = ReadItemHashes(options.RomFsPath);
+        if (!hashes.TryGetValue(options.ItemId, out var sourceItemHash))
+            throw new InvalidOperationException($"Could not find item hash for source item {options.ItemId}.");
+        if (!hashes.TryGetValue(RareCandyItemId, out var rareCandyHash))
+            throw new InvalidOperationException("Could not find item hash for regular Rare Candy.");
+
+        var placement = new GFPack(File.ReadAllBytes(placementPath));
+        var areaNames = new AHTB(placement.GetDataFileName("AreaNameHashTable.tbl")).ToDictionary();
+        var zoneNames = TryReadAhtbDictionary(placement, "ZoneNameHashTable.tbl");
+        var replacements = 0;
+
+        foreach (var areaName in areaNames.Values.OrderBy(z => z, StringComparer.Ordinal))
+        {
+            var fileName = $"{areaName}.bin";
+            if (placement.GetIndexFileName(fileName) < 0)
+                continue;
+
+            var archive = FlatBufferConverter.DeserializeFrom<PlacementZoneArchive>(placement.GetDataFileName(fileName));
+            var areaChanged = false;
+            foreach (var (zone, zoneIndex) in archive.Table.Select((zone, index) => (zone, index)))
+            {
+                var zoneName = zoneNames.TryGetValue(zone.Meta.ZoneID, out var knownZone)
+                    ? knownZone
+                    : zone.Meta.ZoneID.ToString("X16");
+
+                foreach (var (fieldItem, fieldItemIndex) in zone.FieldItems.Select((item, index) => (item.Field00, index)))
+                {
+                    var flagReplacements = ReplaceUlongListValue(fieldItem.Flags, sourceItemHash, rareCandyHash);
+                    var itemReplacements = ReplaceUintListValue(fieldItem.Items, (uint)options.ItemId, RareCandyItemId);
+                    var changed = flagReplacements + itemReplacements;
+                    if (changed == 0)
+                        continue;
+
+                    replacements += changed;
+                    areaChanged = true;
+                    cleanupNotes.Add($"- {fileName}: {zoneName} field item {fieldItemIndex} now points to regular Rare Candy.");
+                }
+
+                foreach (var (hiddenItem, hiddenItemIndex) in zone.HiddenItems.Select((item, index) => (item.Field00, index)))
+                {
+                    for (var chanceIndex = 0; chanceIndex < hiddenItem.Field02.Count; chanceIndex++)
+                    {
+                        var chance = hiddenItem.Field02[chanceIndex];
+                        if (chance.Hash != sourceItemHash)
+                            continue;
+
+                        chance.Hash = rareCandyHash;
+                        replacements++;
+                        areaChanged = true;
+                        cleanupNotes.Add($"- {fileName}: {zoneName} hidden item {hiddenItemIndex} chance {chanceIndex} now points to regular Rare Candy; quantity/chance preserved.");
+                    }
+                }
+            }
+
+            if (areaChanged)
+                placement.SetDataFileName(fileName, archive.SerializeFrom());
+        }
+
+        if (replacements != 0)
+            WriteOutputBytes(options.OutputPath, "romfs/" + PlacementPath, placement.Write());
+
+        results.Add(new(replacements == 0 ? "Info" : "Pass", "RomFS", "romfs/" + PlacementPath, replacements == 0 ? "No source item placement pickups found." : $"Replaced {replacements:N0} placement pickup entr{(replacements == 1 ? "y" : "ies")} with regular Rare Candy."));
+        return replacements;
+    }
+
+    private static int RemoveFromInventory(IList<int> items, int itemId, List<string> cleanupNotes, string label)
+    {
+        var removals = 0;
+        for (var i = items.Count - 1; i >= 0; i--)
+        {
+            if (items[i] != itemId)
+                continue;
+
+            items.RemoveAt(i);
+            removals++;
+        }
+
+        if (removals != 0)
+            cleanupNotes.Add($"- Removed {removals:N0} source item entr{(removals == 1 ? "y" : "ies")} from {label}.");
+
+        return removals;
+    }
+
+    private static int ReplaceUlongListValue(IList<ulong> values, ulong source, ulong replacement)
+    {
+        var replacements = 0;
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] != source)
+                continue;
+
+            values[i] = replacement;
+            replacements++;
+        }
+
+        return replacements;
+    }
+
+    private static int ReplaceUintListValue(IList<uint> values, uint source, uint replacement)
+    {
+        var replacements = 0;
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] != source)
+                continue;
+
+            values[i] = replacement;
+            replacements++;
+        }
+
+        return replacements;
     }
 
     private static void PatchBagEventScript(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
@@ -1620,7 +1775,7 @@ internal static class RoyalCandyLayeredFsBuilder
             "Generated pieces:",
             options.BuildRomFs ? "- `romfs/bin/pml/item/item.dat`: Royal Candy item metadata." : "- RomFS item output disabled.",
             options.BuildRomFs ? "- `romfs/bin/message/*/common/itemname*.dat` and `iteminfo.dat`: Royal Candy text." : "- RomFS text output disabled.",
-            options.BuildRomFs ? "- `romfs/bin/appli/shop/bin/shop_data.bin`: Poke Mart test acquisition entries." : "- RomFS shop output disabled.",
+            options.BuildRomFs ? "- RomFS acquisition cleanup: removes the repurposed source item from shops and replaces raid/placement sources with regular Rare Candy." : "- RomFS acquisition cleanup disabled.",
             options.GrantOnBagEvent ? "- `romfs/bin/script/amx/main_event_0020.amx`: Bag pickup event grants Royal Candy in a fresh new game." : "- Bag pickup script grant disabled.",
             options.BuildExeFs ? "- `exefs/main`: Royal Candy route, non-consumption, virtual count, and cap helper patch." : "- ExeFS output disabled.",
             "",
@@ -1632,6 +1787,33 @@ internal static class RoyalCandyLayeredFsBuilder
 
     private static string GetRomFsPath(string romFsPath, string relativePath) =>
         Path.Combine(romFsPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    private static Dictionary<int, ulong> ReadItemHashes(string romFsPath)
+    {
+        var sourcePath = GetRomFsPath(romFsPath, ItemHashPath);
+        if (!File.Exists(sourcePath))
+            throw new FileNotFoundException("Could not find Sword/Shield item hash table.", sourcePath);
+
+        return ItemHash8.GetItemHashTable(File.ReadAllBytes(sourcePath));
+    }
+
+    private static Dictionary<ulong, string> TryReadAhtbDictionary(GFPack pack, string fileName)
+    {
+        try
+        {
+            return pack.GetIndexFileName(fileName) < 0
+                ? []
+                : new AHTB(pack.GetDataFileName(fileName)).ToDictionary();
+        }
+        catch (ArgumentException)
+        {
+            return [];
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return [];
+        }
+    }
 
     private static void WriteOutputBytes(string outputRoot, string relativePath, byte[] data)
     {
