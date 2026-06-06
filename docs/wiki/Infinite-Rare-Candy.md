@@ -91,7 +91,7 @@ The current generated prototype text is:
 
 - name: `Royal Candy`
 - plural: `Royal Candies`
-- description: `Raises one Pokemon's level up to the current Royal Candy cap.`
+- description: `Raises a Pokemon's level up to the current allowed cap`
 
 That text can be renamed later without changing the ExeFS logic. The item id and route are the important parts.
 
