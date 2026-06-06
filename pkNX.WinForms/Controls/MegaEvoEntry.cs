@@ -18,6 +18,7 @@ public partial class MegaEvoEntry : UserControl
 
         CB_Method.Items.AddRange(EvoMethods);
         CB_Arg.Items.AddRange(items);
+        SearchableComboBoxBehavior.Register(this, CB_Method, CB_Arg);
 
         NUD_Form.ValueChanged += (_, __) => ChangeSpecies((int)NUD_Form.Value);
         CB_Method.SelectedIndexChanged += (s, e) =>

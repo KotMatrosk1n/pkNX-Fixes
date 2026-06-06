@@ -50,6 +50,7 @@ public sealed partial class TMList : Form
         }
         dgvTM.Columns.Add(dgvIndex);
         dgvTM.Columns.Add(dgvMove);
+        SearchableComboBoxBehavior.RegisterGrid(dgvTM);
     }
 
     public void LoadMoves(ushort[] tmlist)

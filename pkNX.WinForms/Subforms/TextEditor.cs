@@ -31,6 +31,7 @@ public partial class TextEditor : Form
         Mode = mode;
         for (int i = 0; i < TextData.Length; i++)
             CB_Entry.Items.Add(c.GetFileName(i));
+        SearchableComboBoxBehavior.Register(this, CB_Entry);
         CB_Entry.SelectedIndex = 0;
         dgv.EditMode = DataGridViewEditMode.EditOnEnter;
         dgv.EditingControlShowing += (_, e) => ApplyTextEditingControlTheme(e.Control);

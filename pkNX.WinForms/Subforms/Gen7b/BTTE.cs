@@ -41,6 +41,7 @@ public partial class BTTE : Form
 
     private readonly CheckBox[] AIBits;
     private readonly List<SearchableComboBoxBehavior> SearchableCombos = [];
+    private readonly HashSet<ComboBox> SearchableRegistered = [];
     private readonly Dictionary<TeamSpriteKey, Image> TeamSpriteCache = [];
     private bool[] TrainerClassHasSingleOwner = [];
     private readonly Label L_ClassBall = new();
@@ -377,6 +378,10 @@ public partial class BTTE : Form
         RegisterSearch(CB_TrainerID);
         RegisterSearch(CB_Trainer_Class);
         RegisterSearch(CB_Money);
+        RegisterSearch(CB_Mode);
+        RegisterSearch(CB_Form);
+        RegisterSearch(CB_Ability);
+        RegisterSearch(CB_Gender);
         if (Game.Info.SWSH)
             RegisterSearch(CB_ClassBall);
         RegisterSearch(CB_Species);
@@ -393,7 +398,13 @@ public partial class BTTE : Form
         RegisterSearch(CB_Nature);
     }
 
-    private void RegisterSearch(ComboBox comboBox) => SearchableCombos.Add(new SearchableComboBoxBehavior(this, comboBox));
+    private void RegisterSearch(ComboBox comboBox)
+    {
+        if (!SearchableRegistered.Add(comboBox))
+            return;
+
+        SearchableCombos.Add(new SearchableComboBoxBehavior(this, comboBox));
+    }
 
     private void ConfigureTrainerToolTips()
     {
@@ -651,7 +662,7 @@ public partial class BTTE : Form
         CB_Ability.Items.Add(abilitylist[pi.Ability2] + " (2)");
         CB_Ability.Items.Add(abilitylist[pi.AbilityH] + " (H)");
 
-        CB_Ability.SelectedIndex = previousAbilityIndex;
+        CB_Ability.SelectedIndex = Math.Clamp(previousAbilityIndex, -1, CB_Ability.Items.Count - 1);
     }
 
     private static string GetEntryTitle(string str, int i) => $"{str} - {i:000}";

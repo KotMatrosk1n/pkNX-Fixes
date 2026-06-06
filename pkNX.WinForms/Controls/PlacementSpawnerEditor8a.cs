@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using pkNX.Structures.FlatBuffers.Arceus;
+using pkNX.WinForms;
 
 namespace pkNX.WinForms.Controls;
 
@@ -10,7 +11,11 @@ public partial class PlacementSpawnerEditor8a : UserControl
 {
     public IList<PlacementSpawner> Spawners = [];
 
-    public PlacementSpawnerEditor8a() => InitializeComponent();
+    public PlacementSpawnerEditor8a()
+    {
+        InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Encounters);
+    }
 
     public void LoadTable(IList<PlacementSpawner> table, string path)
     {

@@ -76,6 +76,7 @@ public sealed class RoyalSwordTrainerMap : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, ScopeFilter);
         BuildEntries();
         RefreshGrid();
     }

@@ -125,6 +125,12 @@ public partial class PokeDataUI8a : Form
 
         CB_Color.Items.AddRange(Enum.GetNames<PokeColor>());
         CB_EXPGroup.Items.AddRange(Enum.GetNames<EXPGroup>());
+
+        SearchableComboBoxBehavior.Register(this, CB_Species, CB_HatchSpecies, CB_Color, CB_EXPGroup);
+        SearchableComboBoxBehavior.Register(this, helditem_boxes);
+        SearchableComboBoxBehavior.Register(this, ability_boxes);
+        SearchableComboBoxBehavior.Register(this, typing_boxes);
+        SearchableComboBoxBehavior.Register(this, eggGroup_boxes);
     }
 
     private void InitLearn()
@@ -163,6 +169,7 @@ public partial class PokeDataUI8a : Form
         dgv.Columns.Add(dgvLevel);
         dgv.Columns.Add(dgvLevelMastery);
         dgv.Columns.Add(dgvMove);
+        SearchableComboBoxBehavior.RegisterGrid(dgv);
     }
 
     private void InitEvo()

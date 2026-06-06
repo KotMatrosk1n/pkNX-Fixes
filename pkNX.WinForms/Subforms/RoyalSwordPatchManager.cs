@@ -52,6 +52,7 @@ public sealed class RoyalSwordPatchManagerForm : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, ScopeFilter);
 
         var mainPath = Path.Combine(InitialExeFsPath, "main");
         if (File.Exists(mainPath))

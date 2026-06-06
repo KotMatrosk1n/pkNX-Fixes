@@ -59,6 +59,7 @@ public sealed class DialogueMapEditor : Form
 
         InitializeLayout();
         ApplyTheme();
+        SearchableComboBoxBehavior.Register(this, SourceFilter);
         BuildEntries(romFsPath);
         RefreshGrid();
     }

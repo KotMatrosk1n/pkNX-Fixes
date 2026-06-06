@@ -98,6 +98,7 @@ public partial class ModelConverter : Form
     {
         ROM = rom;
         InitializeComponent();
+        SearchableComboBoxBehavior.Register(this, CB_Species, CB_SWSHSpecies);
 
         PokemonModelDir = (FolderContainer)ROM[GameFile.PokemonArchiveFolder];
         PokemonModelDir.Initialize();
