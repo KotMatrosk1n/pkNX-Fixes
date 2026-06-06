@@ -149,7 +149,8 @@ public sealed class SearchableComboBoxBehavior
     private void SearchList_MouseMove(object? sender, MouseEventArgs e)
     {
         var index = SearchList.IndexFromPoint(e.Location);
-        SearchList.HoverIndex = (uint)index < (uint)SearchList.Items.Count ? index : -1;
+        if ((uint)index < (uint)SearchList.Items.Count && SearchList.SelectedIndex != index)
+            SearchList.SelectedIndex = index;
     }
 
     private void HandleDeleteKey(KeyEventArgs e)
@@ -232,7 +233,6 @@ public sealed class SearchableComboBoxBehavior
             Owner.Controls.Add(SearchList);
 
         SearchList.BeginUpdate();
-        SearchList.HoverIndex = -1;
         SearchList.Items.Clear();
         foreach (var match in matches)
             SearchList.Items.Add(match);
@@ -262,7 +262,6 @@ public sealed class SearchableComboBoxBehavior
 
     private void HideSearchList()
     {
-        SearchList.HoverIndex = -1;
         SearchList.Visible = false;
     }
 
@@ -404,16 +403,14 @@ public sealed class SearchableComboBoxBehavior
         if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
             return;
 
-        var hovered = listBox is SearchListBox searchList && searchList.HoverIndex == e.Index;
-        DrawTextItem(e, listBox.Items[e.Index]?.ToString() ?? string.Empty, 4, hovered);
+        DrawTextItem(e, listBox.Items[e.Index]?.ToString() ?? string.Empty, 4);
     }
 
-    private static void DrawTextItem(DrawItemEventArgs e, string text, int leftPadding, bool hovered = false)
+    private static void DrawTextItem(DrawItemEventArgs e, string text, int leftPadding)
     {
         var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-        var highlighted = selected || hovered;
-        var backColor = highlighted ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
-        var foreColor = highlighted ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
         using var background = new SolidBrush(backColor);
         e.Graphics.FillRectangle(background, e.Bounds);
@@ -435,30 +432,7 @@ public sealed class SearchableComboBoxBehavior
     private sealed class SearchListBox : ListBox
     {
         private const int WM_MOUSEWHEEL = 0x020A;
-        private int hoverIndex = -1;
-
         public event EventHandler<SearchMouseWheelEventArgs>? BeforeMouseWheel;
-
-        public int HoverIndex
-        {
-            get => hoverIndex;
-            set
-            {
-                if (hoverIndex == value)
-                    return;
-
-                var oldIndex = hoverIndex;
-                hoverIndex = value;
-                InvalidateItem(oldIndex);
-                InvalidateItem(hoverIndex);
-            }
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            HoverIndex = -1;
-            base.OnMouseLeave(e);
-        }
 
         protected override void WndProc(ref Message m)
         {
@@ -466,12 +440,6 @@ public sealed class SearchableComboBoxBehavior
                 return;
 
             base.WndProc(ref m);
-        }
-
-        private void InvalidateItem(int index)
-        {
-            if ((uint)index < (uint)Items.Count)
-                Invalidate(GetItemRectangle(index));
         }
 
         private bool HandleMouseWheelMessage(IntPtr wParam)

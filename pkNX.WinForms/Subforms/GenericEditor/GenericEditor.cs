@@ -332,7 +332,8 @@ public sealed partial class GenericEditor<T> : Form where T : class
             return;
 
         var index = EntrySearchList.IndexFromPoint(e.Location);
-        EntrySearchList.HoverIndex = (uint)index < (uint)EntrySearchList.Items.Count ? index : -1;
+        if ((uint)index < (uint)EntrySearchList.Items.Count && EntrySearchList.SelectedIndex != index)
+            EntrySearchList.SelectedIndex = index;
     }
 
     private void CB_EntryName_KeyDown(object? sender, KeyEventArgs e)
@@ -514,7 +515,6 @@ public sealed partial class GenericEditor<T> : Form where T : class
             Controls.Add(EntrySearchList);
 
         EntrySearchList.BeginUpdate();
-        EntrySearchList.HoverIndex = -1;
         EntrySearchList.Items.Clear();
         foreach (var match in matches)
             EntrySearchList.Items.Add(match);
@@ -544,10 +544,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private void HideEntrySearchList()
     {
         if (EntrySearchList != null)
-        {
-            EntrySearchList.HoverIndex = -1;
             EntrySearchList.Visible = false;
-        }
     }
 
     private void CommitEntryListSelection()
@@ -779,11 +776,9 @@ public sealed partial class GenericEditor<T> : Form where T : class
         if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
             return;
 
-        var hovered = listBox is EntrySearchListBox searchList && searchList.HoverIndex == e.Index;
         var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-        var highlighted = selected || hovered;
-        var backColor = highlighted ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
-        var foreColor = highlighted ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+        var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+        var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
         using var background = new SolidBrush(backColor);
         e.Graphics.FillRectangle(background, e.Bounds);
@@ -946,30 +941,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private sealed class EntrySearchListBox : ListBox
     {
         private const int WM_MOUSEWHEEL = 0x020A;
-        private int hoverIndex = -1;
-
         public event EventHandler<EntrySelectorMouseWheelEventArgs>? BeforeMouseWheel;
-
-        public int HoverIndex
-        {
-            get => hoverIndex;
-            set
-            {
-                if (hoverIndex == value)
-                    return;
-
-                var oldIndex = hoverIndex;
-                hoverIndex = value;
-                InvalidateItem(oldIndex);
-                InvalidateItem(hoverIndex);
-            }
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            HoverIndex = -1;
-            base.OnMouseLeave(e);
-        }
 
         protected override void WndProc(ref Message m)
         {
@@ -977,12 +949,6 @@ public sealed partial class GenericEditor<T> : Form where T : class
                 return;
 
             base.WndProc(ref m);
-        }
-
-        private void InvalidateItem(int index)
-        {
-            if ((uint)index < (uint)Items.Count)
-                Invalidate(GetItemRectangle(index));
         }
 
         private bool HandleMouseWheelMessage(IntPtr wParam)

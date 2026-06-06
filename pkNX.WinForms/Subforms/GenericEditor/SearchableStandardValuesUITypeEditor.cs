@@ -211,7 +211,6 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
         private void ShowMatches(IReadOnlyList<StandardValueEntry> matches, int preferredSelectionIndex)
         {
             Results.BeginUpdate();
-            Results.HoverIndex = -1;
             Results.Items.Clear();
             foreach (var match in matches)
                 Results.Items.Add(match);
@@ -375,7 +374,8 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
         private void Results_MouseMove(object? sender, MouseEventArgs e)
         {
             var index = Results.IndexFromPoint(e.Location);
-            Results.HoverIndex = (uint)index < (uint)Results.Items.Count ? index : -1;
+            if ((uint)index < (uint)Results.Items.Count && Results.SelectedIndex != index)
+                Results.SelectedIndex = index;
         }
 
         private void MoveSelection(int delta)
@@ -428,11 +428,9 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
             if (sender is not ListBox listBox || e.Index < 0 || e.Index >= listBox.Items.Count)
                 return;
 
-            var hovered = listBox is SearchableValueListBox searchList && searchList.HoverIndex == e.Index;
             var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            var highlighted = selected || hovered;
-            var backColor = highlighted ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
-            var foreColor = highlighted ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
+            var backColor = selected ? WinFormsTheme.SelectionBackground : WinFormsTheme.InputBackground;
+            var foreColor = selected ? WinFormsTheme.SelectionText : WinFormsTheme.Text;
 
             using var background = new SolidBrush(backColor);
             e.Graphics.FillRectangle(background, e.Bounds);
@@ -449,39 +447,10 @@ public sealed class SearchableStandardValuesUITypeEditor : UITypeEditor
 
     private sealed class SearchableValueListBox : ListBox
     {
-        private int hoverIndex = -1;
-
-        public int HoverIndex
-        {
-            get => hoverIndex;
-            set
-            {
-                if (hoverIndex == value)
-                    return;
-
-                var oldIndex = hoverIndex;
-                hoverIndex = value;
-                InvalidateItem(oldIndex);
-                InvalidateItem(hoverIndex);
-            }
-        }
-
-        protected override void OnMouseLeave(EventArgs e)
-        {
-            HoverIndex = -1;
-            base.OnMouseLeave(e);
-        }
-
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
             Cursor.Current = Cursors.Default;
-        }
-
-        private void InvalidateItem(int index)
-        {
-            if ((uint)index < (uint)Items.Count)
-                Invalidate(GetItemRectangle(index));
         }
     }
 }
