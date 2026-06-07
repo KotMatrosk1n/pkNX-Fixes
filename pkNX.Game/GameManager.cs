@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using pkNX.Containers;
 using pkNX.Structures;
 using static pkNX.Structures.GameVersion;
@@ -38,6 +39,8 @@ public abstract class GameManager
     /// Current <see cref="GameVersion"/> the data represents.
     /// </summary>
     public GameVersion Game => ROM.Game;
+    public bool HasModifiedFiles => FileMap.HasModifiedFiles;
+    public IReadOnlyList<string> ModifiedFileLabels => FileMap.ModifiedFileLabels;
 
     /// <summary>
     /// Initializes a new <see cref="GameManager"/> for the input <see cref="GameLocation"/> with initial <see cref="Language"/>.
@@ -84,10 +87,10 @@ public abstract class GameManager
     /// Saves all open files and finalizes the ROM data.
     /// </summary>
     /// <param name="closing">Skip re-initialization of game data.</param>
-    public void SaveAll(bool closing)
+    public void SaveAll(bool closing, Action<string>? saving = null, Action<string>? saved = null)
     {
         Terminate();
-        FileMap.SaveAll();
+        FileMap.SaveAll(saving, saved);
         if (!closing)
             Initialize();
     }
