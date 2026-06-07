@@ -23,7 +23,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private const int CandyDescriptionWrapColumn = 48;
     private const int CandyDescriptionMaxLines = 3;
     private const string DefaultCandyDescriptionText = "Raises a Pokemon's level up to the current allowed cap";
-    private const int DefaultStartingCap = 10;
+    private const int DefaultStartingCap = 1;
     private static readonly Color StatusBlockedColor = Color.FromArgb(255, 142, 142);
 
     private readonly string RomFsPath;
@@ -834,7 +834,7 @@ internal sealed class RoyalCandyLimitDialog : Form
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Text = $"Default cap before these milestones is {defaultCap}. Each later cap must be equal to or higher than the previous cap.",
+            Text = $"Cap before the first listed battle is {defaultCap}. Each later cap must be equal to or higher than the previous cap.",
         };
 
         var table = new TableLayoutPanel
@@ -927,6 +927,7 @@ internal static class RoyalCandyLayeredFsBuilder
     private const int KeyItemType = 9;
     private const byte KeyItemTypeByte = KeyItemType;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
+    private const ulong HopFirstBattleFlagHash = 0xA9C039F0598B8A31;
     private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
     internal const string ItemPath = "bin/pml/item/item.dat";
     internal const string ItemHashPath = "bin/pml/item/item_hash_to_index.dat";
@@ -2428,6 +2429,7 @@ internal static class RoyalCandyLayeredFsBuilder
 
     internal static RoyalCandyCapMilestoneDefinition[] GetDefaultCapMilestoneDefinitions() =>
     [
+        new(10, HopFirstBattleFlagHash, "Hop 004/005/006", "Hop 004/005/006"),
         new(16, HopEndorsementFlagHash, "Hop 007/008/009", "Hop 007/008/009"),
         new(20, SceneMainMasterWorkHash, "Hop 191/192/193", "Hop 191/192/193", RoyalCandyCapMilestoneKind.WorkAtLeast, 530),
         new(23, SceneMainMasterWorkHash, "Bede 195", "Bede 195", RoyalCandyCapMilestoneKind.WorkAtLeast, 550),

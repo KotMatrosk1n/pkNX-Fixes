@@ -103,3 +103,7 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - text, raid reward, and placement overlays are rewritten to remove Royal Candy data when they match Royal Candy-generated or restored Royal Candy cleanup states, even when container serialization bytes differ from the original dump;
   - uninstall can now clean orphaned Royal Candy RomFS leftovers after `exefs/main` has already been removed;
   - all RomFS file removal was removed so uninstall cannot delete unrelated user-owned files from the selected mod folder.
+- Added the first Hop battle to the customizable story-cap ladder:
+  - the fallback cap before any story milestone is now level `1`;
+  - `FE_EV0110_WIN` / Hop 004/005/006 is now the first editable custom-limit row and defaults to cap `10`;
+  - the Royal Save Inspector now reports the same cap progression, so pre-first-Hop saves show cap `1` and post-first-Hop saves show cap `10`.
