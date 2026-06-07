@@ -1007,23 +1007,19 @@ internal static class RoyalCandyLayeredFsBuilder
         results.AddRange(preflight.Results);
         notes.AddRange(preflight.Notes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
 
-        var changedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var removedFiles = 0;
-        foreach (var relativePath in EnumerateRoyalCandyOwnedOutputRelativePaths(options).Distinct(StringComparer.OrdinalIgnoreCase))
+        var exefsDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var removedExeFsMain = DeleteOutputFile(options.OutputPath, "exefs/main", exefsDirectories);
+        if (removedExeFsMain)
         {
-            if (!DeleteOutputFile(options.OutputPath, relativePath, changedDirectories))
-                continue;
-
-            removedFiles++;
-            results.Add(new("Pass", "Uninstall", relativePath, "Removed Royal Candy output file."));
-            notes.Add($"- Removed {relativePath}.");
+            results.Add(new("Pass", "Uninstall", "exefs/main", "Removed Royal Candy ExeFS main patch."));
+            notes.Add("- Removed exefs/main Royal Candy patch.");
         }
 
-        var restoredRecords = RestoreRoyalCandyRomFsToVanilla(options, results, notes, changedDirectories);
+        var restoredRecords = RestoreRoyalCandyRomFsToVanilla(options, results, notes);
 
-        var removedDirectories = PruneEmptyOutputDirectories(options.OutputPath, changedDirectories);
-        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), and removed {removedDirectories:N0} empty folder(s)."));
-        notes.Add($"- Removed {removedFiles:N0} Royal Candy-owned file(s), restored {restoredRecords:N0} RomFS record(s), and removed {removedDirectories:N0} empty folder(s).");
+        var removedDirectories = PruneEmptyOutputDirectories(options.OutputPath, exefsDirectories);
+        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed Royal Candy ExeFS patch: {(removedExeFsMain ? "yes" : "no")}; restored {restoredRecords:N0} RomFS record(s) in place; removed {removedDirectories:N0} empty ExeFS folder(s)."));
+        notes.Add($"- Removed Royal Candy ExeFS patch: {(removedExeFsMain ? "yes" : "no")}; restored {restoredRecords:N0} RomFS record(s) in place; removed {removedDirectories:N0} empty ExeFS folder(s).");
         return new(results, notes);
     }
 
@@ -1154,7 +1150,7 @@ internal static class RoyalCandyLayeredFsBuilder
             return new(false, message, results, notes, null, signatureScan);
         }
 
-        var passMessage = $"Detected {installedRoyalCandy.Description}. Uninstall can remove the Royal Candy LayeredFS output files.";
+        var passMessage = $"Detected {installedRoyalCandy.Description}. Uninstall can remove the Royal Candy ExeFS patch and restore Royal Candy RomFS edits in place.";
         results.Add(new("Pass", "Uninstall", "exefs/main", passMessage));
         notes.Add("- " + passMessage);
         notes.AddRange(installedRoyalCandy.Details.Select(detail => "  - " + detail));
@@ -1672,17 +1668,17 @@ internal static class RoyalCandyLayeredFsBuilder
         notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
     }
 
-    private static int RestoreRoyalCandyRomFsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreRoyalCandyRomFsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         var restored = 0;
-        restored += RestoreItemDataToVanilla(options, results, notes, changedDirectories);
-        restored += RestoreItemTextToVanilla(options, results, notes, changedDirectories);
-        restored += RestoreSourceAcquisitionDataToVanilla(options, results, notes, changedDirectories);
-        restored += RestoreBagEventScriptToVanilla(options, results, notes, changedDirectories);
+        restored += RestoreItemDataToVanilla(options, results, notes);
+        restored += RestoreItemTextToVanilla(options, results, notes);
+        restored += RestoreSourceAcquisitionDataToVanilla(options, results, notes);
+        restored += RestoreBagEventScriptToVanilla(options, results, notes);
         return restored;
     }
 
-    private static int RestoreItemDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreItemDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         const string outputRelativePath = "romfs/" + ItemPath;
         var layeredPath = GetLayeredFsRomFsPath(options, ItemPath);
@@ -1700,9 +1696,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var baseline = File.ReadAllBytes(basePath);
         if (current.SequenceEqual(baseline))
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed item table overlay that already matched vanilla."));
-            notes.Add($"- Removed {outputRelativePath}; it already matched the base dump.");
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered item table already matches vanilla; leaving it in place."));
             return 0;
         }
 
@@ -1730,7 +1724,7 @@ internal static class RoyalCandyLayeredFsBuilder
             return 0;
         }
 
-        CommitLayeredRestore(options.OutputPath, outputRelativePath, current, baseline, changedDirectories, notes);
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, current, baseline, notes);
         results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restoredRecords:N0} Royal Candy item table record(s) to vanilla."));
         return restoredRecords;
     }
@@ -1778,22 +1772,22 @@ internal static class RoyalCandyLayeredFsBuilder
         return trimmed;
     }
 
-    private static int RestoreItemTextToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreItemTextToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         var restoredFiles = 0;
         foreach (var language in EnumerateMessageLanguages(options))
         {
             foreach (var fileName in EnumerateMessageFileNames(options, language, "itemname*.dat"))
-                restoredFiles += RestoreOneTextFileLineToVanilla(options, $"{MessageRoot}/{language}/common/{fileName}", options.ItemId, results, notes, changedDirectories);
+                restoredFiles += RestoreOneTextFileLineToVanilla(options, $"{MessageRoot}/{language}/common/{fileName}", options.ItemId, results, notes);
 
-            restoredFiles += RestoreOneTextFileLineToVanilla(options, $"{MessageRoot}/{language}/common/{ItemInfoFile}", options.ItemId, results, notes, changedDirectories);
+            restoredFiles += RestoreOneTextFileLineToVanilla(options, $"{MessageRoot}/{language}/common/{ItemInfoFile}", options.ItemId, results, notes);
         }
 
         results.Add(new(restoredFiles == 0 ? "Info" : "Pass", "Uninstall", "romfs/bin/message", restoredFiles == 0 ? "No layered Royal Candy item text needed restoration." : $"Restored {restoredFiles:N0} item text file(s) to vanilla line data."));
         return restoredFiles;
     }
 
-    private static int RestoreOneTextFileLineToVanilla(RoyalCandyBuildOptions options, string relativePath, int lineIndex, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreOneTextFileLineToVanilla(RoyalCandyBuildOptions options, string relativePath, int lineIndex, List<BuildResult> results, List<string> notes)
     {
         var outputRelativePath = "romfs/" + relativePath;
         var layeredPath = GetLayeredFsRomFsPath(options, relativePath);
@@ -1811,9 +1805,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var baseBytes = File.ReadAllBytes(basePath);
         if (currentBytes.SequenceEqual(baseBytes))
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed text overlay that already matched vanilla."));
-            notes.Add($"- Removed {outputRelativePath}; it already matched the base dump.");
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered text already matches vanilla; leaving it in place."));
             return 0;
         }
 
@@ -1838,30 +1830,19 @@ internal static class RoyalCandyLayeredFsBuilder
         if (!changed)
         {
             if (TextContentMatchesVanilla(lines, flags, baseline.Lines, baseline.Flags) || currentBytes.SequenceEqual(normalizedBaseBytes))
-            {
-                DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-                results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed text overlay that matched vanilla line data."));
-                notes.Add($"- Removed {outputRelativePath}; parsed text matched vanilla line data.");
-            }
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered text matches vanilla line data; leaving it in place."));
 
             return 0;
         }
 
         lines[lineIndex] = baseline.Lines[lineIndex];
-        if (TextContentMatchesVanilla(lines, flags, baseline.Lines, baseline.Flags))
-        {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            notes.Add($"- Removed {outputRelativePath}; Royal Candy line restore made the file match vanilla line data.");
-            return 1;
-        }
-
         var restored = new TextFile(new TextConfig(GameVersion.SW), remapChars: true)
         {
             SETEMPTYTEXT = false,
             Lines = lines,
             Flags = flags,
         };
-        CommitLayeredRestore(options.OutputPath, outputRelativePath, restored.Data, baseBytes, changedDirectories, notes, normalizedBaseBytes);
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restored.Data, baseBytes, notes, normalizedBaseBytes);
         notes.Add($"- Restored {outputRelativePath} line {lineIndex} to vanilla text.");
         return 1;
     }
@@ -1880,16 +1861,16 @@ internal static class RoyalCandyLayeredFsBuilder
     private static bool TextContentMatchesVanilla(string[] currentLines, ushort[] currentFlags, string[] vanillaLines, ushort[] vanillaFlags) =>
         currentLines.SequenceEqual(vanillaLines, StringComparer.Ordinal) && currentFlags.SequenceEqual(vanillaFlags);
 
-    private static int RestoreSourceAcquisitionDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreSourceAcquisitionDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         var restored = 0;
-        restored += RestoreShopDataToVanilla(options, results, notes, changedDirectories);
-        restored += RestoreRaidRewardsToVanilla(options, results, notes, changedDirectories);
-        restored += RestorePlacementItemsToVanilla(options, results, notes, changedDirectories);
+        restored += RestoreShopDataToVanilla(options, results, notes);
+        restored += RestoreRaidRewardsToVanilla(options, results, notes);
+        restored += RestorePlacementItemsToVanilla(options, results, notes);
         return restored;
     }
 
-    private static int RestoreShopDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreShopDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         const string outputRelativePath = "romfs/" + ShopPath;
         var layeredPath = GetLayeredFsRomFsPath(options, ShopPath);
@@ -1933,9 +1914,7 @@ internal static class RoyalCandyLayeredFsBuilder
         {
             if (restoredBytes.SequenceEqual(normalizedBaseBytes))
             {
-                DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-                results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed shop overlay that matched vanilla inventory data."));
-                notes.Add($"- Removed {outputRelativePath}; parsed shop data matched vanilla.");
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered shop data matches vanilla inventory data; leaving it in place."));
                 return 0;
             }
 
@@ -1943,7 +1922,7 @@ internal static class RoyalCandyLayeredFsBuilder
             return 0;
         }
 
-        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, changedDirectories, notes, normalizedBaseBytes);
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
         results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} vanilla shop entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}."));
         notes.Add($"- Restored {restored:N0} vanilla shop entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}.");
         return restored;
@@ -1964,7 +1943,7 @@ internal static class RoyalCandyLayeredFsBuilder
         return restored;
     }
 
-    private static int RestoreRaidRewardsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreRaidRewardsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         const string outputRelativePath = "romfs/" + NestDataPath;
         var layeredPath = GetLayeredFsRomFsPath(options, NestDataPath);
@@ -1984,9 +1963,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var restoredRoyalCandyOverlay = currentBytes.SequenceEqual(CreateRestoredRoyalCandyRaidCleanupBytes(baseBytes, options.ItemId));
         if (restoredRoyalCandyOverlay)
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed raid reward overlay that matched restored Royal Candy cleanup output."));
-            notes.Add($"- Removed {outputRelativePath}; it matched restored Royal Candy raid cleanup output.");
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered raid reward data already matches restored Royal Candy cleanup output; leaving it in place."));
             return 0;
         }
 
@@ -2002,9 +1979,7 @@ internal static class RoyalCandyLayeredFsBuilder
         {
             if (restoredBytes.SequenceEqual(normalizedBaseBytes))
             {
-                DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-                results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed raid reward overlay that matched vanilla reward data."));
-                notes.Add($"- Removed {outputRelativePath}; parsed raid reward data matched vanilla.");
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered raid reward data matches vanilla reward data; leaving it in place."));
                 return 0;
             }
 
@@ -2014,13 +1989,13 @@ internal static class RoyalCandyLayeredFsBuilder
 
         if (cleanRoyalCandyOverlay)
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, $"Removed clean Royal Candy raid reward cleanup overlay after restoring {restored:N0} entr{(restored == 1 ? "y" : "ies")}."));
-            notes.Add($"- Removed {outputRelativePath}; it matched clean Royal Candy raid cleanup output.");
+            CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+            results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} clean Royal Candy raid reward cleanup entr{(restored == 1 ? "y" : "ies")} to vanilla in place."));
+            notes.Add($"- Restored clean Royal Candy raid reward cleanup overlay at {outputRelativePath} in place.");
             return restored;
         }
 
-        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, changedDirectories, notes, normalizedBaseBytes);
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
         results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} vanilla raid reward entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}."));
         notes.Add($"- Restored {restored:N0} vanilla raid reward entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}.");
         return restored;
@@ -2073,7 +2048,7 @@ internal static class RoyalCandyLayeredFsBuilder
         return restored;
     }
 
-    private static int RestorePlacementItemsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestorePlacementItemsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         const string outputRelativePath = "romfs/" + PlacementPath;
         var layeredPath = GetLayeredFsRomFsPath(options, PlacementPath);
@@ -2099,9 +2074,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var restoredRoyalCandyOverlay = currentBytes.SequenceEqual(CreateRestoredRoyalCandyPlacementCleanupBytes(baseBytes, sourceItemHash, rareCandyHash, options.ItemId));
         if (restoredRoyalCandyOverlay)
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed placement overlay that matched restored Royal Candy cleanup output."));
-            notes.Add($"- Removed {outputRelativePath}; it matched restored Royal Candy placement cleanup output.");
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered placement data already matches restored Royal Candy cleanup output; leaving it in place."));
             return 0;
         }
 
@@ -2115,9 +2088,7 @@ internal static class RoyalCandyLayeredFsBuilder
         {
             if (restoredBytes.SequenceEqual(normalizedBaseBytes))
             {
-                DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-                results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed placement overlay that matched vanilla placement data."));
-                notes.Add($"- Removed {outputRelativePath}; parsed placement data matched vanilla.");
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered placement data matches vanilla placement data; leaving it in place."));
                 return 0;
             }
 
@@ -2127,13 +2098,13 @@ internal static class RoyalCandyLayeredFsBuilder
 
         if (cleanRoyalCandyOverlay)
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, $"Removed clean Royal Candy placement cleanup overlay after restoring {restored:N0} entr{(restored == 1 ? "y" : "ies")}."));
-            notes.Add($"- Removed {outputRelativePath}; it matched clean Royal Candy placement cleanup output.");
+            CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+            results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} clean Royal Candy placement cleanup entr{(restored == 1 ? "y" : "ies")} to vanilla in place."));
+            notes.Add($"- Restored clean Royal Candy placement cleanup overlay at {outputRelativePath} in place.");
             return restored;
         }
 
-        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, changedDirectories, notes, normalizedBaseBytes);
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
         results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} vanilla placement pickup entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}."));
         notes.Add($"- Restored {restored:N0} vanilla placement pickup entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}.");
         return restored;
@@ -2248,7 +2219,7 @@ internal static class RoyalCandyLayeredFsBuilder
         return restored;
     }
 
-    private static int RestoreBagEventScriptToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes, ISet<string> changedDirectories)
+    private static int RestoreBagEventScriptToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         const string outputRelativePath = "romfs/" + RoyalSwordScriptAmxPatcher.BagEventScriptPath;
         var layeredPath = GetLayeredFsRomFsPath(options, RoyalSwordScriptAmxPatcher.BagEventScriptPath);
@@ -2266,9 +2237,7 @@ internal static class RoyalCandyLayeredFsBuilder
         var baseBytes = File.ReadAllBytes(basePath);
         if (currentBytes.SequenceEqual(baseBytes))
         {
-            DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-            results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed Bag-event script overlay that already matched vanilla."));
-            notes.Add($"- Removed {outputRelativePath}; it already matched the base dump.");
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered Bag-event script already matches vanilla; leaving it in place."));
             return 0;
         }
 
@@ -2280,9 +2249,9 @@ internal static class RoyalCandyLayeredFsBuilder
             return 0;
         }
 
-        DeleteOutputFile(options.OutputPath, outputRelativePath, changedDirectories);
-        results.Add(new("Pass", "Uninstall", outputRelativePath, "Removed clean Royal Candy Bag-event script overlay."));
-        notes.Add($"- Removed clean Royal Candy Bag-event script overlay at {outputRelativePath}; base script will be used.");
+        WriteOutputBytes(options.OutputPath, outputRelativePath, baseBytes);
+        results.Add(new("Pass", "Uninstall", outputRelativePath, "Restored clean Royal Candy Bag-event script overlay to vanilla in place."));
+        notes.Add($"- Restored clean Royal Candy Bag-event script overlay at {outputRelativePath} to vanilla in place.");
         return 1;
     }
 
@@ -3131,55 +3100,6 @@ internal static class RoyalCandyLayeredFsBuilder
     public static RoyalCandyInstallScan? DetectInstalledRoyalCandy(RoyalCandyBuildOptions options) =>
         AnalyzeLayeredExeFsMain(options)?.InstalledRoyalCandy;
 
-    private static IEnumerable<string> EnumerateRoyalCandyOwnedOutputRelativePaths(RoyalCandyBuildOptions options)
-    {
-        yield return "exefs/main";
-
-        // Legacy generated notes from earlier Royal Candy builder versions.
-        yield return "exefs/royal_candy_ui_hook_patch_notes.txt";
-        yield return "royal_candy_item_row_notes.txt";
-        yield return "royal_candy_source_cleanup_notes.txt";
-        yield return "royal_candy_bag_event_script_notes.txt";
-
-        if (IsOwnedRoyalCandyMarker(options.OutputPath))
-            yield return MarkerFileName;
-
-        if (IsOwnedRoyalCandyReadme(options.OutputPath))
-            yield return "README.md";
-    }
-
-    private static bool IsOwnedRoyalCandyMarker(string outputRoot)
-    {
-        var markerPath = Path.Combine(outputRoot, MarkerFileName);
-        return TextFileStartsWithLine(markerPath, MarkerHeader);
-    }
-
-    private static bool IsOwnedRoyalCandyReadme(string outputRoot)
-    {
-        var readmePath = Path.Combine(outputRoot, "README.md");
-        return TextFileStartsWithLine(readmePath, "# Royal Candy Patch");
-    }
-
-    private static bool TextFileStartsWithLine(string path, string expectedLine)
-    {
-        if (!File.Exists(path))
-            return false;
-
-        try
-        {
-            using var reader = File.OpenText(path);
-            return string.Equals(reader.ReadLine(), expectedLine, StringComparison.Ordinal);
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
     private static string GetTitleId(RoyalCandyGameFlavor gameFlavor) => gameFlavor switch
     {
         RoyalCandyGameFlavor.Sword => "0100ABF008968000",
@@ -3212,19 +3132,15 @@ internal static class RoyalCandyLayeredFsBuilder
         File.WriteAllBytes(outputPath, data);
     }
 
-    private static void CommitLayeredRestore(string outputRoot, string relativePath, byte[] restoredData, byte[] baselineData, ISet<string> changedDirectories, List<string> notes, byte[]? normalizedBaselineData = null)
+    private static void CommitLayeredRestore(string outputRoot, string relativePath, byte[] restoredData, byte[] baselineData, List<string> notes, byte[]? normalizedBaselineData = null)
     {
+        WriteOutputBytes(outputRoot, relativePath, restoredData);
         if (restoredData.SequenceEqual(baselineData) || normalizedBaselineData is not null && restoredData.SequenceEqual(normalizedBaselineData))
         {
-            if (DeleteOutputFile(outputRoot, relativePath, changedDirectories))
-                notes.Add($"- Removed {relativePath}; restored data now matches vanilla.");
+            notes.Add($"- Updated {relativePath}; Royal Candy-owned records now match vanilla and the layered file was kept.");
             return;
         }
 
-        WriteOutputBytes(outputRoot, relativePath, restoredData);
-        var outputPath = GetContainedOutputPath(outputRoot, relativePath);
-        if (Path.GetDirectoryName(outputPath) is { } directory)
-            changedDirectories.Add(directory);
         notes.Add($"- Updated {relativePath}; Royal Candy-owned records were restored while unrelated layered data was preserved.");
     }
 
