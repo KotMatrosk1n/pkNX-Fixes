@@ -1,16 +1,46 @@
-# pkNX
+# pkNX-Fixes
 
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
-pkNX: A package of Pokémon (Nintendo Switch) ROM Editing Tools, programmed in [C#](https://en.wikipedia.org/wiki/C_Sharp_%28programming_language%29).
+pkNX-Fixes is Matroskin's maintained pkNX fork for Pokemon Royal Sword and
+Sword/Shield-focused editor improvements.
 
-Similar to [pk3DS](https://github.com/kwsch/pk3DS) for Nintendo 3DS, pkNX provides an editing environment to manipulate game binary assets such as stats, learnsets, trainers, and more!
+Repository: https://github.com/KotMatrosk1n/pkNX-Fixes
+
+Wiki: https://github.com/KotMatrosk1n/pkNX-Fixes/wiki
+
+The wiki source pages also live in [`docs/wiki`](docs/wiki) so longer research notes can be
+versioned with the main repository.
+
+This project is built on the upstream pkNX ROM editor and keeps the upstream project lineage,
+features, and dependency credits below.
+
+## Royal Sword Fork
+
+This fork is meant to make Sword/Shield ROM editing less like staring at raw serialized data and
+more like using purpose-built tools. The current Royal Sword work focuses on:
+
+* readable SWSH editor labels, descriptions, and dropdowns;
+* safer item, shop, raid, trainer, placement, text, and encounter editing;
+* Royal-only editor surfaces for flagwork, story events, trainers, saves, ExeFS patches, dialogue
+  mapping, and generated patch output;
+* the Infinite Rare Candy / Royal Candy toolchain documented in the wiki.
+
+## Upstream pkNX
+
+pkNX is a package of Pokémon (Nintendo Switch) ROM Editing Tools, programmed in
+[C#](https://en.wikipedia.org/wiki/C_Sharp_%28programming_language%29).
+
+Similar to [pk3DS](https://github.com/kwsch/pk3DS) for Nintendo 3DS, pkNX provides an editing
+environment to manipulate game binary assets such as stats, learnsets, trainers, and more.
 
 ![Main Window](https://i.imgur.com/7WiBJpn.png)
 
 ## Download
 
-Download the latest version [here](https://dev.azure.com/project-pokemon/pkNX/_build?view=runs).
+Upstream pkNX build artifacts are available
+[here](https://dev.azure.com/project-pokemon/pkNX/_build?view=runs). If you need the fork-specific
+Royal Sword work from this repository, build from source.
 
 Click on the latest run at the top, then click `# published` under `Related`, then click `Download artifacts` using the button on the right.
 <img src="https://github.com/user-attachments/assets/755435d0-2647-4750-ab73-93e2f65bdf8a" width=95% height=80%>
