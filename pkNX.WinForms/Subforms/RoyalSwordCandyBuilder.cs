@@ -23,7 +23,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private const int CandyDescriptionWrapColumn = 48;
     private const int CandyDescriptionMaxLines = 3;
     private const string DefaultCandyDescriptionText = "Raises a Pokemon's level up to the current allowed cap";
-    private const int DefaultStartingCap = 10;
+    private const int DefaultStartingCap = 1;
     private static readonly Color StatusBlockedColor = Color.FromArgb(255, 142, 142);
 
     private readonly string RomFsPath;
@@ -34,6 +34,7 @@ public sealed class RoyalSwordCandyBuilderForm : Form
     private readonly Label ProjectStatusLabel = new();
     private readonly Button UnlimitedButton = new();
     private readonly Button CustomizeButton = new();
+    private readonly Button UninstallButton = new();
     private readonly DataGridView ResultGrid = new();
     private readonly TextBox LogText = new();
     private readonly ToolTip ButtonToolTips = new()
@@ -89,23 +90,29 @@ public sealed class RoyalSwordCandyBuilderForm : Form
 
         var actionPanel = new TableLayoutPanel
         {
-            ColumnCount = 2,
+            ColumnCount = 3,
             Dock = DockStyle.Fill,
             Padding = new Padding(0, 8, 0, 12),
             RowCount = 1,
         };
-        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
 
         ConfigurePrimaryActionButton(UnlimitedButton, "Give me an infinite Royal Candy without limits", "Builds Royal Candy with the fresh-new-game Bag grant and no custom story cap ladder.", BuildUnlimited);
         ConfigurePrimaryActionButton(CustomizeButton, "Customize Royal Candy limits", "Opens milestone level cap customization before building Royal Candy.", CustomizeLimits);
+        ConfigurePrimaryActionButton(UninstallButton, "Uninstall Royal Candy", "Removes a Royal Candy LayeredFS output only when exefs/main matches a registered Royal Candy signature.", UninstallRoyalCandy);
         actionPanel.Controls.Add(UnlimitedButton, 0, 0);
         actionPanel.Controls.Add(CustomizeButton, 1, 0);
+        actionPanel.Controls.Add(UninstallButton, 2, 0);
 
         ConfigureGrid(ResultGrid);
+        var stepColumn = CreateTextColumn("Step", 96);
+        stepColumn.ToolTipText = "Higher numbers are newer; newest events are shown at the top.";
+        ResultGrid.Columns.Add(stepColumn);
         ResultGrid.Columns.Add(CreateTextColumn("Status", 86));
         ResultGrid.Columns.Add(CreateTextColumn("Area", 100));
-        ResultGrid.Columns.Add(CreateTextColumn("Output", 250));
+        ResultGrid.Columns.Add(CreateTextColumn("Output", 230));
         ResultGrid.Columns.Add(new DataGridViewTextBoxColumn
         {
             HeaderText = "Message",
@@ -341,6 +348,18 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         RunBuild(options);
     }
 
+    private void UninstallRoyalCandy()
+    {
+        var options = CreateOptions(RoyalCandyBuildMode.Unlimited, null);
+        if (!CheckUninstallPreflight(options))
+            return;
+
+        if (!ConfirmUninstall())
+            return;
+
+        RunUninstall(options);
+    }
+
     private bool CheckBuildPreflight(RoyalCandyBuildOptions options)
     {
         ToggleActions(false);
@@ -375,6 +394,40 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         }
     }
 
+    private bool CheckUninstallPreflight(RoyalCandyBuildOptions options)
+    {
+        ToggleActions(false);
+        try
+        {
+            var preflight = RoyalCandyLayeredFsBuilder.AnalyzeUninstallPreflight(options);
+            SetResults(preflight.Results);
+            LogText.Text = string.Join(Environment.NewLine, preflight.Notes);
+            if (preflight.Passed)
+            {
+                SetProjectStatus("Ready to uninstall the detected Royal Candy output.", true);
+                return true;
+            }
+
+            SetProjectStatus(GetSimpleUninstallStatus(preflight), false);
+            MessageBox.Show(this, preflight.Message, "Royal Candy Uninstall", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            SetResults([
+                new("Fail", "Uninstall", string.Empty, ex.Message),
+            ]);
+            LogText.Text = ex.ToString();
+            SetProjectStatus("Royal Candy cannot be uninstalled until the preflight issue is fixed.", false);
+            MessageBox.Show(this, ex.Message, "Royal Candy Uninstall", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        finally
+        {
+            ToggleActions(true);
+        }
+    }
+
     private void RunBuild(RoyalCandyBuildOptions options)
     {
         ToggleActions(false);
@@ -393,6 +446,31 @@ public sealed class RoyalSwordCandyBuilderForm : Form
             ]);
             LogText.Text = ex.ToString();
             SetProjectStatus("Royal Candy output was not generated.", false);
+        }
+        finally
+        {
+            ToggleActions(true);
+        }
+    }
+
+    private void RunUninstall(RoyalCandyBuildOptions options)
+    {
+        ToggleActions(false);
+        try
+        {
+            var summary = RoyalCandyLayeredFsBuilder.Uninstall(options);
+            SetResults(summary.Results);
+            LogText.Text = string.Join(Environment.NewLine, summary.Notes);
+            SetReadyStatus();
+            MessageBox.Show(this, "Royal Candy output was uninstalled.", "Royal Candy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
+        {
+            SetResults([
+                new("Fail", "Uninstall", string.Empty, ex.Message),
+            ]);
+            LogText.Text = ex.ToString();
+            SetProjectStatus("Royal Candy output was not uninstalled.", false);
         }
         finally
         {
@@ -440,31 +518,75 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         return MessageBox.Show(this, warning, "Royal Candy ExeFS Warning", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
     }
 
+    private bool ConfirmUninstall()
+    {
+        const string warning = "Royal Candy uninstall confirms that the selected exefs/main matches a registered Royal Candy signature, removes that ExeFS overlay, and restores only the RomFS records normally modified by Royal Candy back to the base dump's vanilla values.\n\nUnrelated custom RomFS edits in the same files are preserved when their records can be identified safely. Royal Candy-owned item data, item text, source pickup/shop/raid data, and the clean generated Bag-event script are restored to vanilla, not to any previous custom value.\n\nContinue and uninstall Royal Candy from the selected LayeredFS output?";
+        return MessageBox.Show(this, warning, "Royal Candy Uninstall", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+    }
+
     private void SetResults(IEnumerable<BuildResult> results)
     {
         ResultGrid.Rows.Clear();
-        foreach (var result in results)
-            ResultGrid.Rows.Add(result.Status, result.Area, result.Output, result.Message);
+
+        var orderedResults = results.ToList();
+        for (var i = orderedResults.Count - 1; i >= 0; i--)
+        {
+            var result = orderedResults[i];
+            ResultGrid.Rows.Add(GetResultStepLabel(i, orderedResults.Count), result.Status, result.Area, result.Output, result.Message);
+        }
+
+        if (ResultGrid.Rows.Count == 0)
+            return;
+
+        ResultGrid.ClearSelection();
+        ResultGrid.Rows[0].Selected = true;
+        ResultGrid.FirstDisplayedScrollingRowIndex = 0;
+    }
+
+    private static string GetResultStepLabel(int zeroBasedIndex, int count)
+    {
+        var step = (zeroBasedIndex + 1).ToString("D" + count.ToString(CultureInfo.InvariantCulture).Length, CultureInfo.InvariantCulture);
+        if (count == 1)
+            return $"{step} latest";
+        if (zeroBasedIndex == count - 1)
+            return $"{step} newest";
+        if (zeroBasedIndex == 0)
+            return $"{step} oldest";
+        return step;
     }
 
     private void ToggleActions(bool enabled)
     {
-        UnlimitedButton.Enabled = enabled;
-        CustomizeButton.Enabled = enabled;
+        var actionEnabled = enabled && ProjectReady;
+        UnlimitedButton.Enabled = actionEnabled;
+        CustomizeButton.Enabled = actionEnabled;
+        UninstallButton.Enabled = actionEnabled;
     }
 
     private void RefreshInstalledRoyalCandyStatus()
     {
         try
         {
-            var scan = RoyalCandyLayeredFsBuilder.DetectInstalledRoyalCandy(CreateOptions(RoyalCandyBuildMode.Unlimited, null));
+            var scan = RoyalCandyLayeredFsBuilder.AnalyzeLayeredExeFsMain(CreateOptions(RoyalCandyBuildMode.Unlimited, null));
             if (scan is null)
             {
                 SetReadyStatus();
                 return;
             }
 
-            SetProjectStatus(GetInstalledStatusText(scan.Mode), false);
+            if (scan.InstalledRoyalCandy is { } installed)
+            {
+                SetProjectStatus(GetInstalledStatusText(installed.Mode), false);
+                return;
+            }
+
+            if (scan.HasUnknownChanges)
+            {
+                SetProjectStatus("Unknown ExeFS mod detected.", false);
+                return;
+            }
+
+            SetReadyStatus();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
         {
@@ -489,7 +611,18 @@ public sealed class RoyalSwordCandyBuilderForm : Form
         if (preflight.InstalledRoyalCandy is { } installed)
             return GetInstalledStatusText(installed.Mode);
 
+        if (preflight.ExeFsSignatureScan is { HasUnknownChanges: true })
+            return "Unknown ExeFS mod detected.";
+
         return "Royal Candy cannot be installed until the preflight issue is fixed.";
+    }
+
+    private static string GetSimpleUninstallStatus(RoyalCandyBuildPreflight preflight)
+    {
+        if (preflight.ExeFsSignatureScan is { HasUnknownChanges: true })
+            return "Unknown ExeFS mod detected.";
+
+        return "No Royal Candy install detected.";
     }
 
     private static string GetInstalledStatusText(RoyalCandyBuildMode mode) =>
@@ -701,7 +834,7 @@ internal sealed class RoyalCandyLimitDialog : Form
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Text = $"Default cap before these milestones is {defaultCap}. Each later cap must be equal to or higher than the previous cap.",
+            Text = $"Cap before the first listed battle is {defaultCap}. Each later cap must be equal to or higher than the previous cap.",
         };
 
         var table = new TableLayoutPanel
@@ -794,6 +927,7 @@ internal static class RoyalCandyLayeredFsBuilder
     private const int KeyItemType = 9;
     private const byte KeyItemTypeByte = KeyItemType;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
+    private const ulong HopFirstBattleFlagHash = 0xA9C039F0598B8A31;
     private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
     internal const string ItemPath = "bin/pml/item/item.dat";
     internal const string ItemHashPath = "bin/pml/item/item_hash_to_index.dat";
@@ -804,6 +938,9 @@ internal static class RoyalCandyLayeredFsBuilder
     internal const string ItemInfoFile = "iteminfo.dat";
     private const string RoyalCandyName = "Royal Candy";
     private const string RoyalCandyPluralName = "Royal Candies";
+    private const string MarkerFileName = "RoyalSword_RoyalCandy.txt";
+    private const string MarkerHeader = "Royal Sword - Royal Candy";
+    private const int ItemRawRowSize = 0x30;
 
     public static RoyalCandyBuildSummary Build(RoyalCandyBuildOptions options)
     {
@@ -846,8 +983,44 @@ internal static class RoyalCandyLayeredFsBuilder
         if (options.BuildExeFs)
             PatchExeFsMain(options, results, notes);
 
-        WriteReadme(options, notes);
-        results.Add(new("Pass", "Output", "README.md", "Generated Royal Candy build notes."));
+        WriteMarkerFile(options);
+        results.Add(new("Pass", "Output", MarkerFileName, "Generated Royal Sword marker file."));
+        return new(results, notes);
+    }
+
+    public static RoyalCandyBuildSummary Uninstall(RoyalCandyBuildOptions options)
+    {
+        var results = new List<BuildResult>();
+        var notes = new List<string>
+        {
+            "Royal Sword Candy Uninstall",
+            "===========================",
+            "",
+            $"Output: {options.OutputPath}",
+            $"Game: {options.GameFlavor}",
+            "",
+        };
+
+        var preflight = AnalyzeUninstallPreflight(options);
+        if (!preflight.Passed)
+            throw new InvalidOperationException(preflight.Message);
+
+        results.AddRange(preflight.Results);
+        notes.AddRange(preflight.Notes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
+
+        var exefsDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var removedExeFsMain = DeleteOutputFile(options.OutputPath, "exefs/main", exefsDirectories);
+        if (removedExeFsMain)
+        {
+            results.Add(new("Pass", "Uninstall", "exefs/main", "Removed Royal Candy ExeFS main patch."));
+            notes.Add("- Removed exefs/main Royal Candy patch.");
+        }
+
+        var restoredRecords = RestoreRoyalCandyRomFsToVanilla(options, results, notes);
+
+        var removedDirectories = PruneEmptyOutputDirectories(options.OutputPath, exefsDirectories);
+        results.Add(new("Pass", "Uninstall", options.OutputPath, $"Removed Royal Candy ExeFS patch: {(removedExeFsMain ? "yes" : "no")}; restored {restoredRecords:N0} RomFS record(s) in place; removed {removedDirectories:N0} empty ExeFS folder(s)."));
+        notes.Add($"- Removed Royal Candy ExeFS patch: {(removedExeFsMain ? "yes" : "no")}; restored {restoredRecords:N0} RomFS record(s) in place; removed {removedDirectories:N0} empty ExeFS folder(s).");
         return new(results, notes);
     }
 
@@ -864,21 +1037,35 @@ internal static class RoyalCandyLayeredFsBuilder
             "",
         };
 
-        var existingRoyalCandy = DetectExistingRoyalCandy(options);
-        if (existingRoyalCandy is not null)
+        var signatureScan = AnalyzeLayeredExeFsMain(options);
+        if (signatureScan is not null)
         {
-            var message = $"Existing Royal Candy patch detected in the selected mod folder: {existingRoyalCandy.Description}. Remove that Royal Candy output before building a new one.";
-            results.Add(new("Fail", "Preflight", "exefs/main", message));
-            notes.Add("- " + message);
-            notes.AddRange(existingRoyalCandy.Details.Select(detail => "  - " + detail));
-            return new(false, message, results, notes, existingRoyalCandy);
+            AddExeFsSignatureScanResult(signatureScan, options.BuildExeFs, results, notes);
+
+            if (signatureScan.InstalledRoyalCandy is not null)
+            {
+                var existingRoyalCandy = signatureScan.InstalledRoyalCandy;
+                var message = $"Existing Royal Candy patch detected in the selected mod folder: {existingRoyalCandy.Description}. Remove that Royal Candy output before building a new one.";
+                results.Add(new("Fail", "Preflight", "exefs/main", message));
+                notes.Add("- " + message);
+                notes.AddRange(existingRoyalCandy.Details.Select(detail => "  - " + detail));
+                return new(false, message, results, notes, existingRoyalCandy, signatureScan);
+            }
+
+            if (options.BuildExeFs && signatureScan.HasUnknownChanges)
+            {
+                var message = "Unknown ExeFS mod detected in the selected mod folder. Add a signature for this edit or remove the layered exefs/main before building Royal Candy.";
+                results.Add(new("Fail", "Preflight", "exefs/main", message));
+                notes.Add("- " + message);
+                return new(false, message, results, notes, null, signatureScan);
+            }
         }
 
         if (!options.BuildExeFs)
         {
             results.Add(new("Pass", "Preflight", "ExeFS", "ExeFS output is disabled for this build."));
             notes.Add("- ExeFS output disabled; conflict check skipped.");
-            return new(true, "Preflight passed.", results, notes);
+            return new(true, "Preflight passed.", results, notes, null, signatureScan);
         }
 
         var overlayMainPath = GetLayeredFsExeFsPath(options, "main");
@@ -889,7 +1076,7 @@ internal static class RoyalCandyLayeredFsBuilder
             var message = "Could not find exefs/main in either the selected mod folder or the base ExeFS dump.";
             results.Add(new("Fail", "Preflight", "exefs/main", message));
             notes.Add("- " + message);
-            return new(false, message, results, notes);
+            return new(false, message, results, notes, null, signatureScan);
         }
 
         try
@@ -903,7 +1090,7 @@ internal static class RoyalCandyLayeredFsBuilder
                 : $"Base exefs/main is not compatible with the Royal Candy ExeFS patch: {ex.Message}";
             results.Add(new("Fail", "Preflight", "exefs/main", message));
             notes.Add("- " + message);
-            return new(false, message, results, notes);
+            return new(false, message, results, notes, null, signatureScan);
         }
 
         var passMessage = usingOverlayMain
@@ -911,7 +1098,240 @@ internal static class RoyalCandyLayeredFsBuilder
             : "No exefs/main overlay found; Royal Candy will patch the base ExeFS main.";
         results.Add(new("Pass", "Preflight", "exefs/main", passMessage));
         notes.Add("- " + passMessage);
-        return new(true, "Preflight passed.", results, notes);
+        return new(true, "Preflight passed.", results, notes, null, signatureScan);
+    }
+
+    public static RoyalCandyBuildPreflight AnalyzeUninstallPreflight(RoyalCandyBuildOptions options)
+    {
+        var results = new List<BuildResult>();
+        var notes = new List<string>
+        {
+            "Royal Candy uninstall preflight",
+            "===============================",
+            "",
+            $"LayeredFS output root: {options.OutputPath}",
+            "Uninstall runs when layered exefs/main matches a registered Royal Candy signature, or when orphaned Royal Candy RomFS output is detected after ExeFS was already removed.",
+            "",
+        };
+
+        var signatureScan = AnalyzeLayeredExeFsMain(options);
+        if (signatureScan is null)
+        {
+            var orphanedRomFs = DetectRoyalCandyRomFsLeftovers(options, notes);
+            if (orphanedRomFs)
+            {
+                var orphanPassMessage = "No Royal Candy ExeFS remains, but orphaned Royal Candy RomFS output was detected. Uninstall can clean those leftover files.";
+                results.Add(new("Pass", "Uninstall", "romfs", orphanPassMessage));
+                notes.Add("- " + orphanPassMessage);
+                return new(true, orphanPassMessage, results, notes);
+            }
+
+            var message = "No layered exefs/main or Royal Candy RomFS leftovers were found in the selected mod folder.";
+            results.Add(new("Fail", "Uninstall", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes);
+        }
+
+        AddExeFsSignatureScanResult(signatureScan, false, results, notes, failOnInstalledRoyalCandy: false);
+        if (!signatureScan.Valid)
+        {
+            var message = "Layered exefs/main could not be scanned as a valid NSO.";
+            results.Add(new("Fail", "Uninstall", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes, null, signatureScan);
+        }
+
+        if (signatureScan.InstalledRoyalCandy is not { } installedRoyalCandy)
+        {
+            var message = signatureScan.HasUnknownChanges
+                ? "Unknown ExeFS mod detected in the selected mod folder. Uninstall is blocked until this edit has a registered signature."
+                : "No registered Royal Candy ExeFS signature was detected in the selected mod folder.";
+            results.Add(new("Fail", "Uninstall", "exefs/main", message));
+            notes.Add("- " + message);
+            return new(false, message, results, notes, null, signatureScan);
+        }
+
+        var passMessage = $"Detected {installedRoyalCandy.Description}. Uninstall can remove the Royal Candy ExeFS patch and restore Royal Candy RomFS edits in place.";
+        results.Add(new("Pass", "Uninstall", "exefs/main", passMessage));
+        notes.Add("- " + passMessage);
+        notes.AddRange(installedRoyalCandy.Details.Select(detail => "  - " + detail));
+        return new(true, passMessage, results, notes, installedRoyalCandy, signatureScan);
+    }
+
+    private static bool DetectRoyalCandyRomFsLeftovers(RoyalCandyBuildOptions options, List<string> notes)
+    {
+        var detections = new List<string>();
+        TryDetectRoyalCandyItemDataLeftover(options, detections);
+        TryDetectRoyalCandyTextLeftovers(options, detections);
+        TryDetectRoyalCandyShopLeftover(options, detections);
+        TryDetectRoyalCandyGfPackLeftover(options, NestDataPath, "raid reward", detections);
+        TryDetectRoyalCandyGfPackLeftover(options, PlacementPath, "placement", detections);
+
+        if (detections.Count == 0)
+            return false;
+
+        notes.Add("- Orphaned Royal Candy RomFS leftovers detected:");
+        notes.AddRange(detections.Select(detection => "  - " + detection));
+        return true;
+    }
+
+    private static void TryDetectRoyalCandyItemDataLeftover(RoyalCandyBuildOptions options, List<string> detections)
+    {
+        var layeredPath = GetLayeredFsRomFsPath(options, ItemPath);
+        var basePath = GetBaseRomFsPath(options, ItemPath);
+        if (!File.Exists(layeredPath) || !File.Exists(basePath) || FilesAreEqual(layeredPath, basePath))
+            return;
+
+        try
+        {
+            var currentBytes = File.ReadAllBytes(layeredPath);
+            var baseBytes = File.ReadAllBytes(basePath);
+            if (BinaryPrimitives.ReadUInt16LittleEndian(currentBytes.AsSpan(4, 2)) > BinaryPrimitives.ReadUInt16LittleEndian(baseBytes.AsSpan(4, 2)))
+            {
+                detections.Add("item.dat has an appended raw item row from Royal Candy output.");
+                return;
+            }
+
+            var currentItems = Item8.GetArray(currentBytes);
+            var baseItems = Item8.GetArray(baseBytes);
+            if ((uint)options.ItemId >= (uint)currentItems.Length || (uint)options.ItemId >= (uint)baseItems.Length)
+                return;
+
+            if (!currentItems[options.ItemId].Data.SequenceEqual(baseItems[options.ItemId].Data)
+                && IsRoyalCandyItemShape(currentItems[options.ItemId], baseItems[RareCandyItemId]))
+            {
+                detections.Add($"item.dat still has Royal Candy-shaped item data for item {options.ItemId}.");
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IndexOutOfRangeException or IOException or UnauthorizedAccessException)
+        {
+            detections.Add($"item.dat exists but could not be fully inspected: {ex.Message}");
+        }
+    }
+
+    private static bool IsRoyalCandyItemShape(Item8 item, Item8 rareCandy) =>
+        item.Price == 1
+        && item.Pouch == Item8.PouchID.Key
+        && item.EffectField == FieldItemType.Medicine
+        && item.CanUseOnPokemon
+        && item.ItemType == KeyItemTypeByte
+        && item.LevelUp
+        && item.ItemSprite == rareCandy.ItemSprite
+        && item.GroupType == Item8.GroupIndexType.None;
+
+    private static void TryDetectRoyalCandyTextLeftovers(RoyalCandyBuildOptions options, List<string> detections)
+    {
+        foreach (var language in EnumerateMessageLanguages(options))
+        {
+            foreach (var fileName in EnumerateMessageFileNames(options, language, "itemname*.dat"))
+                TryDetectRoyalCandyTextLeftover(options, $"{MessageRoot}/{language}/common/{fileName}", options.ItemId, detections);
+
+            TryDetectRoyalCandyTextLeftover(options, $"{MessageRoot}/{language}/common/{ItemInfoFile}", options.ItemId, detections);
+        }
+    }
+
+    private static void TryDetectRoyalCandyTextLeftover(RoyalCandyBuildOptions options, string relativePath, int lineIndex, List<string> detections)
+    {
+        var layeredPath = GetLayeredFsRomFsPath(options, relativePath);
+        var basePath = GetBaseRomFsPath(options, relativePath);
+        if (!File.Exists(layeredPath) || !File.Exists(basePath) || FilesAreEqual(layeredPath, basePath))
+            return;
+
+        try
+        {
+            var current = new TextFile(File.ReadAllBytes(layeredPath), new TextConfig(GameVersion.SW), remapChars: true) { SETEMPTYTEXT = false };
+            var baseline = new TextFile(File.ReadAllBytes(basePath), new TextConfig(GameVersion.SW), remapChars: true) { SETEMPTYTEXT = false };
+            if ((uint)lineIndex >= (uint)current.Lines.Length || (uint)lineIndex >= (uint)baseline.Lines.Length)
+                return;
+
+            var currentLine = current.Lines[lineIndex];
+            if (TextContentMatchesVanilla(current.Lines, current.Flags, baseline.Lines, baseline.Flags)
+                || string.Equals(currentLine, RoyalCandyName, StringComparison.Ordinal)
+                || string.Equals(currentLine, RoyalCandyPluralName, StringComparison.Ordinal)
+                || string.Equals(currentLine, options.ItemDescription, StringComparison.Ordinal))
+            {
+                detections.Add($"{relativePath} has Royal Candy or vanilla-equivalent item text output.");
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IndexOutOfRangeException or IOException or UnauthorizedAccessException)
+        {
+            detections.Add($"{relativePath} exists but could not be fully inspected: {ex.Message}");
+        }
+    }
+
+    private static void TryDetectRoyalCandyShopLeftover(RoyalCandyBuildOptions options, List<string> detections)
+    {
+        var layeredPath = GetLayeredFsRomFsPath(options, ShopPath);
+        var basePath = GetBaseRomFsPath(options, ShopPath);
+        if (!File.Exists(layeredPath) || !File.Exists(basePath) || FilesAreEqual(layeredPath, basePath))
+            return;
+
+        try
+        {
+            var current = FlatBufferConverter.DeserializeFrom<SwShShopInventory>(File.ReadAllBytes(layeredPath));
+            var baseline = FlatBufferConverter.DeserializeFrom<SwShShopInventory>(File.ReadAllBytes(basePath));
+            if (current.SerializeFrom().SequenceEqual(baseline.SerializeFrom()))
+                detections.Add("shop_data.bin is vanilla-equivalent Royal Candy cleanup output.");
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IndexOutOfRangeException or IOException or UnauthorizedAccessException)
+        {
+            detections.Add($"shop_data.bin exists but could not be fully inspected: {ex.Message}");
+        }
+    }
+
+    private static void TryDetectRoyalCandyGfPackLeftover(RoyalCandyBuildOptions options, string relativePath, string label, List<string> detections)
+    {
+        var layeredPath = GetLayeredFsRomFsPath(options, relativePath);
+        var basePath = GetBaseRomFsPath(options, relativePath);
+        if (!File.Exists(layeredPath) || !File.Exists(basePath) || FilesAreEqual(layeredPath, basePath))
+            return;
+
+        try
+        {
+            var currentBytes = File.ReadAllBytes(layeredPath);
+            var baseBytes = File.ReadAllBytes(basePath);
+            if (relativePath == NestDataPath
+                && (currentBytes.SequenceEqual(CreateRoyalCandyRaidCleanupBytes(baseBytes, options.ItemId))
+                    || currentBytes.SequenceEqual(CreateRestoredRoyalCandyRaidCleanupBytes(baseBytes, options.ItemId))))
+            {
+                detections.Add($"{relativePath} matches Royal Candy {label} cleanup output.");
+                return;
+            }
+
+            if (relativePath == PlacementPath)
+            {
+                var hashes = ReadItemHashes(options);
+                if (hashes.TryGetValue(options.ItemId, out var sourceItemHash) && hashes.TryGetValue(RareCandyItemId, out var rareCandyHash)
+                    && (currentBytes.SequenceEqual(CreateRoyalCandyPlacementCleanupBytes(baseBytes, sourceItemHash, rareCandyHash, options.ItemId))
+                        || currentBytes.SequenceEqual(CreateRestoredRoyalCandyPlacementCleanupBytes(baseBytes, sourceItemHash, rareCandyHash, options.ItemId))))
+                {
+                    detections.Add($"{relativePath} matches Royal Candy {label} cleanup output.");
+                    return;
+                }
+            }
+
+            var current = new GFPack(currentBytes);
+            var baseline = new GFPack(baseBytes);
+            if (current.Write().SequenceEqual(baseline.Write()))
+                detections.Add($"{relativePath} is vanilla-equivalent Royal Candy {label} cleanup output.");
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IndexOutOfRangeException or IOException or UnauthorizedAccessException)
+        {
+            detections.Add($"{relativePath} exists but could not be fully inspected: {ex.Message}");
+        }
+    }
+
+    private static void AddExeFsSignatureScanResult(RoyalSwordExeFsSignatureScan scan, bool buildingExeFs, List<BuildResult> results, List<string> notes, bool failOnInstalledRoyalCandy = true)
+    {
+        var status = !scan.Valid || failOnInstalledRoyalCandy && scan.InstalledRoyalCandy is not null || buildingExeFs && scan.HasUnknownChanges
+            ? "Fail"
+            : scan.Matches.Count != 0
+                ? "Pass"
+                : "Info";
+        results.Add(new(status, "Preflight", "exefs/main", "ExeFS signature scan: " + scan.Summary));
+        notes.Add("- ExeFS signature scan: " + scan.Summary);
+        foreach (var detail in scan.Details)
+            notes.Add("  - " + detail.TrimStart());
     }
 
     private static void PatchItemData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
@@ -949,27 +1369,11 @@ internal static class RoyalCandyLayeredFsBuilder
         target.GroupIndex = 0;
         target.SortIndex = template.SortIndex;
 
-        var patched = Item8.SetArray(items, itemData);
-        patched = AppendUniqueItemRow(patched, options.ItemId, target.Data);
+        var patched = AppendUniqueItemRow(itemData, options.ItemId, target.Data);
         WriteOutputBytes(options.OutputPath, "romfs/" + ItemPath, patched);
 
-        var notesPath = Path.Combine(options.OutputPath, "royal_candy_item_row_notes.txt");
-        File.WriteAllText(notesPath, string.Join(Environment.NewLine, [
-            "Royal Candy item row patch",
-            "==========================",
-            "",
-            $"Template source id: {options.TemplateItemId}",
-            $"Royal Candy item id: {options.ItemId}",
-            "",
-            "The selected item row is cloned from the template, adjusted into a Key Items pocket level-up item, and pointed at a new unique raw item row.",
-            $"Vanilla candidate bytes: {Convert.ToHexString(originalTarget)}",
-            $"Template bytes:          {Convert.ToHexString(template.Data.ToArray())}",
-            $"Patched candidate bytes: {Convert.ToHexString(target.Data.ToArray())}",
-            $"Original shared row ids: {FormatSharedIds(sharedIds, options.ItemId)}",
-        ]));
-
         results.Add(new("Pass", "RomFS", "romfs/" + ItemPath, "Royal Candy item row generated."));
-        notes.Add($"- Generated romfs/{ItemPath} from item {options.TemplateItemId} into item {options.ItemId}; source was {sourceDescription}.");
+        notes.Add($"- Generated romfs/{ItemPath} from item {options.TemplateItemId} into item {options.ItemId}; source was {sourceDescription}; vanilla candidate bytes {Convert.ToHexString(originalTarget)}; template bytes {Convert.ToHexString(template.Data.ToArray())}; shared row ids {FormatSharedIds(sharedIds, options.ItemId)}.");
     }
 
     private static void PatchItemText(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
@@ -1038,11 +1442,11 @@ internal static class RoyalCandyLayeredFsBuilder
         var placementReplacements = PatchSourcePlacementItems(options, results, cleanupNotes);
         var totalChanges = shopRemovals + raidReplacements + placementReplacements;
 
-        File.WriteAllText(Path.Combine(options.OutputPath, "royal_candy_source_cleanup_notes.txt"), string.Join(Environment.NewLine, cleanupNotes));
-        results.Add(new(totalChanges == 0 ? "Warning" : "Pass", "RomFS", "royal_candy_source_cleanup_notes.txt", $"Cleaned {totalChanges:N0} vanilla acquisition entr{(totalChanges == 1 ? "y" : "ies")} for source item {options.ItemId}."));
+        results.Add(new(totalChanges == 0 ? "Warning" : "Pass", "RomFS", "romfs", $"Cleaned {totalChanges:N0} vanilla acquisition entr{(totalChanges == 1 ? "y" : "ies")} for source item {options.ItemId}."));
         notes.Add(totalChanges == 0
             ? $"- Source acquisition cleanup found no vanilla item {options.ItemId} entries to change."
             : $"- Cleaned {totalChanges:N0} vanilla item {options.ItemId} acquisition entr{(totalChanges == 1 ? "y" : "ies")}; hidden pickups and raid rewards become regular Rare Candy.");
+        notes.AddRange(cleanupNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
     }
 
     private static int PatchSourceShopData(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> cleanupNotes)
@@ -1141,10 +1545,20 @@ internal static class RoyalCandyLayeredFsBuilder
             throw new InvalidOperationException("Could not find item hash for regular Rare Candy.");
 
         var placement = new GFPack(File.ReadAllBytes(placementPath));
+        var replacements = ReplacePlacementItems(placement, sourceItemHash, rareCandyHash, (uint)options.ItemId, cleanupNotes);
+
+        if (replacements != 0)
+            WriteOutputBytes(options.OutputPath, "romfs/" + PlacementPath, placement.Write());
+
+        results.Add(new(replacements == 0 ? "Info" : "Pass", "RomFS", "romfs/" + PlacementPath, replacements == 0 ? "No source item placement pickups found." : $"Replaced {replacements:N0} placement pickup entr{(replacements == 1 ? "y" : "ies")} with regular Rare Candy."));
+        return replacements;
+    }
+
+    private static int ReplacePlacementItems(GFPack placement, ulong sourceItemHash, ulong rareCandyHash, uint itemId, List<string> cleanupNotes)
+    {
         var areaNames = new AHTB(placement.GetDataFileName("AreaNameHashTable.tbl")).ToDictionary();
         var zoneNames = TryReadAhtbDictionary(placement, "ZoneNameHashTable.tbl");
         var replacements = 0;
-
         foreach (var areaName in areaNames.Values.OrderBy(z => z, StringComparer.Ordinal))
         {
             var fileName = $"{areaName}.bin";
@@ -1162,7 +1576,7 @@ internal static class RoyalCandyLayeredFsBuilder
                 foreach (var (fieldItem, fieldItemIndex) in zone.FieldItems.Select((item, index) => (item.Field00, index)))
                 {
                     var flagReplacements = ReplaceUlongListValue(fieldItem.Flags, sourceItemHash, rareCandyHash);
-                    var itemReplacements = ReplaceUintListValue(fieldItem.Items, (uint)options.ItemId, RareCandyItemId);
+                    var itemReplacements = ReplaceUintListValue(fieldItem.Items, itemId, RareCandyItemId);
                     var changed = flagReplacements + itemReplacements;
                     if (changed == 0)
                         continue;
@@ -1192,10 +1606,6 @@ internal static class RoyalCandyLayeredFsBuilder
                 placement.SetDataFileName(fileName, archive.SerializeFrom());
         }
 
-        if (replacements != 0)
-            WriteOutputBytes(options.OutputPath, "romfs/" + PlacementPath, placement.Write());
-
-        results.Add(new(replacements == 0 ? "Info" : "Pass", "RomFS", "romfs/" + PlacementPath, replacements == 0 ? "No source item placement pickups found." : $"Replaced {replacements:N0} placement pickup entr{(replacements == 1 ? "y" : "ies")} with regular Rare Candy."));
         return replacements;
     }
 
@@ -1259,6 +1669,618 @@ internal static class RoyalCandyLayeredFsBuilder
         notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
     }
 
+    private static int RestoreRoyalCandyRomFsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        var restored = 0;
+        restored += RestoreItemDataToVanilla(options, results, notes);
+        restored += RestoreItemTextToVanilla(options, results, notes);
+        restored += RestoreSourceAcquisitionDataToVanilla(options, results, notes);
+        restored += RestoreBagEventScriptToVanilla(options, results, notes);
+        return restored;
+    }
+
+    private static int RestoreItemDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        const string outputRelativePath = "romfs/" + ItemPath;
+        var layeredPath = GetLayeredFsRomFsPath(options, ItemPath);
+        if (!File.Exists(layeredPath))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No layered item table found."));
+            return 0;
+        }
+
+        var basePath = GetBaseRomFsPath(options, ItemPath);
+        if (!File.Exists(basePath))
+            throw new FileNotFoundException("Could not find base item table for Royal Candy uninstall.", basePath);
+
+        var current = File.ReadAllBytes(layeredPath);
+        var baseline = File.ReadAllBytes(basePath);
+        if (current.SequenceEqual(baseline))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered item table already matches vanilla; leaving it in place."));
+            return 0;
+        }
+
+        var baseIndex = GetItemEntryIndex(baseline, options.ItemId);
+        var currentIndex = GetItemEntryIndex(current, options.ItemId);
+        var restoredRecords = 0;
+        if (currentIndex != baseIndex)
+        {
+            var indexOffset = GetItemEntryIndexOffset(options.ItemId);
+            BinaryPrimitives.WriteUInt16LittleEndian(current.AsSpan(indexOffset, 2), baseIndex);
+            restoredRecords++;
+            notes.Add($"- Restored item {options.ItemId} table index from raw row {currentIndex} to vanilla raw row {baseIndex}.");
+        }
+
+        if (RestoreItemRawRowToVanilla(current, baseline, baseIndex))
+        {
+            restoredRecords++;
+            notes.Add($"- Restored item {options.ItemId} vanilla raw row {baseIndex} bytes.");
+        }
+
+        current = TryTrimRoyalCandyAppendedItemRow(current, baseline, currentIndex, baseIndex, options.ItemId, notes, ref restoredRecords);
+        if (restoredRecords == 0)
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No Royal Candy item table data needed restoration."));
+            return 0;
+        }
+
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, current, baseline, notes);
+        results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restoredRecords:N0} Royal Candy item table record(s) to vanilla."));
+        return restoredRecords;
+    }
+
+    private static bool RestoreItemRawRowToVanilla(byte[] current, byte[] baseline, ushort rowIndex)
+    {
+        var currentOffset = GetItemRawRowOffset(current, rowIndex);
+        var baselineOffset = GetItemRawRowOffset(baseline, rowIndex);
+        var currentRow = current.AsSpan(currentOffset, ItemRawRowSize);
+        var baselineRow = baseline.AsSpan(baselineOffset, ItemRawRowSize);
+        if (currentRow.SequenceEqual(baselineRow))
+            return false;
+
+        baselineRow.CopyTo(currentRow);
+        return true;
+    }
+
+    private static byte[] TryTrimRoyalCandyAppendedItemRow(byte[] current, byte[] baseline, ushort currentIndex, ushort baseIndex, int itemId, List<string> notes, ref int restoredRecords)
+    {
+        if (currentIndex == baseIndex)
+            return current;
+
+        var currentRawCount = BinaryPrimitives.ReadUInt16LittleEndian(current.AsSpan(4, 2));
+        var baseRawCount = BinaryPrimitives.ReadUInt16LittleEndian(baseline.AsSpan(4, 2));
+        if (currentIndex != currentRawCount - 1 || currentRawCount <= baseRawCount)
+            return current;
+
+        var itemCount = BinaryPrimitives.ReadUInt16LittleEndian(current);
+        for (var i = 0; i < itemCount; i++)
+        {
+            if (i == itemId)
+                continue;
+            if (GetItemEntryIndex(current, i) == currentIndex)
+                return current;
+        }
+
+        var rowLength = ItemRawRowSize;
+        if (rowLength <= 0 || current.Length < baseline.Length + rowLength)
+            return current;
+
+        var trimmed = current[..^rowLength];
+        BinaryPrimitives.WriteUInt16LittleEndian(trimmed.AsSpan(4, 2), (ushort)(currentRawCount - 1));
+        restoredRecords++;
+        notes.Add($"- Removed unused Royal Candy raw item row {currentIndex} from the end of the item table.");
+        return trimmed;
+    }
+
+    private static int RestoreItemTextToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        var restoredFiles = 0;
+        foreach (var language in EnumerateMessageLanguages(options))
+        {
+            foreach (var fileName in EnumerateMessageFileNames(options, language, "itemname*.dat"))
+                restoredFiles += RestoreOneTextFileLineToVanilla(options, $"{MessageRoot}/{language}/common/{fileName}", options.ItemId, results, notes);
+
+            restoredFiles += RestoreOneTextFileLineToVanilla(options, $"{MessageRoot}/{language}/common/{ItemInfoFile}", options.ItemId, results, notes);
+        }
+
+        results.Add(new(restoredFiles == 0 ? "Info" : "Pass", "Uninstall", "romfs/bin/message", restoredFiles == 0 ? "No layered Royal Candy item text needed restoration." : $"Restored {restoredFiles:N0} item text file(s) to vanilla line data."));
+        return restoredFiles;
+    }
+
+    private static int RestoreOneTextFileLineToVanilla(RoyalCandyBuildOptions options, string relativePath, int lineIndex, List<BuildResult> results, List<string> notes)
+    {
+        var outputRelativePath = "romfs/" + relativePath;
+        var layeredPath = GetLayeredFsRomFsPath(options, relativePath);
+        if (!File.Exists(layeredPath))
+            return 0;
+
+        var basePath = GetBaseRomFsPath(options, relativePath);
+        if (!File.Exists(basePath))
+        {
+            results.Add(new("Warning", "Uninstall", outputRelativePath, "Base text file was not found; leaving layered text unchanged."));
+            return 0;
+        }
+
+        var currentBytes = File.ReadAllBytes(layeredPath);
+        var baseBytes = File.ReadAllBytes(basePath);
+        if (currentBytes.SequenceEqual(baseBytes))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered text already matches vanilla; leaving it in place."));
+            return 0;
+        }
+
+        var current = new TextFile(currentBytes, new TextConfig(GameVersion.SW), remapChars: true) { SETEMPTYTEXT = false };
+        var baseline = new TextFile(baseBytes, new TextConfig(GameVersion.SW), remapChars: true) { SETEMPTYTEXT = false };
+        var normalizedBaseBytes = CreateTextFileData(baseline.Lines, baseline.Flags);
+        if ((uint)lineIndex >= (uint)current.Lines.Length || (uint)lineIndex >= (uint)baseline.Lines.Length)
+        {
+            results.Add(new("Warning", "Uninstall", outputRelativePath, $"Line {lineIndex} is outside the current or base text file; leaving layered text unchanged."));
+            return 0;
+        }
+
+        var lines = current.Lines;
+        var flags = current.Flags;
+        var changed = !string.Equals(lines[lineIndex], baseline.Lines[lineIndex], StringComparison.Ordinal);
+        if ((uint)lineIndex < (uint)flags.Length && (uint)lineIndex < (uint)baseline.Flags.Length && flags[lineIndex] != baseline.Flags[lineIndex])
+        {
+            flags[lineIndex] = baseline.Flags[lineIndex];
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            if (TextContentMatchesVanilla(lines, flags, baseline.Lines, baseline.Flags) || currentBytes.SequenceEqual(normalizedBaseBytes))
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered text matches vanilla line data; leaving it in place."));
+
+            return 0;
+        }
+
+        lines[lineIndex] = baseline.Lines[lineIndex];
+        var restored = new TextFile(new TextConfig(GameVersion.SW), remapChars: true)
+        {
+            SETEMPTYTEXT = false,
+            Lines = lines,
+            Flags = flags,
+        };
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restored.Data, baseBytes, notes, normalizedBaseBytes);
+        notes.Add($"- Restored {outputRelativePath} line {lineIndex} to vanilla text.");
+        return 1;
+    }
+
+    private static byte[] CreateTextFileData(string[] lines, ushort[] flags)
+    {
+        var text = new TextFile(new TextConfig(GameVersion.SW), remapChars: true)
+        {
+            SETEMPTYTEXT = false,
+            Lines = lines,
+            Flags = flags,
+        };
+        return text.Data;
+    }
+
+    private static bool TextContentMatchesVanilla(string[] currentLines, ushort[] currentFlags, string[] vanillaLines, ushort[] vanillaFlags) =>
+        currentLines.SequenceEqual(vanillaLines, StringComparer.Ordinal) && currentFlags.SequenceEqual(vanillaFlags);
+
+    private static int RestoreSourceAcquisitionDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        var restored = 0;
+        restored += RestoreShopDataToVanilla(options, results, notes);
+        restored += RestoreRaidRewardsToVanilla(options, results, notes);
+        restored += RestorePlacementItemsToVanilla(options, results, notes);
+        return restored;
+    }
+
+    private static int RestoreShopDataToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        const string outputRelativePath = "romfs/" + ShopPath;
+        var layeredPath = GetLayeredFsRomFsPath(options, ShopPath);
+        if (!File.Exists(layeredPath))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No layered shop data found."));
+            return 0;
+        }
+
+        var basePath = GetBaseRomFsPath(options, ShopPath);
+        if (!File.Exists(basePath))
+            throw new FileNotFoundException("Could not find base shop data for Royal Candy uninstall.", basePath);
+
+        var currentBytes = File.ReadAllBytes(layeredPath);
+        var baseBytes = File.ReadAllBytes(basePath);
+        var current = FlatBufferConverter.DeserializeFrom<SwShShopInventory>(currentBytes);
+        var baseline = FlatBufferConverter.DeserializeFrom<SwShShopInventory>(baseBytes);
+        var restored = 0;
+
+        var currentSingles = current.Single.ToDictionary(z => z.Hash);
+        foreach (var vanillaSingle in baseline.Single)
+        {
+            if (currentSingles.TryGetValue(vanillaSingle.Hash, out var currentSingle))
+                restored += RestoreInventoryItemsToVanilla(currentSingle.Inventories.Items, vanillaSingle.Inventories.Items, options.ItemId);
+        }
+
+        var currentMultis = current.Multi.ToDictionary(z => z.Hash);
+        foreach (var vanillaMulti in baseline.Multi)
+        {
+            if (!currentMultis.TryGetValue(vanillaMulti.Hash, out var currentMulti))
+                continue;
+
+            var inventoryCount = Math.Min(currentMulti.Inventories.Count, vanillaMulti.Inventories.Count);
+            for (var i = 0; i < inventoryCount; i++)
+                restored += RestoreInventoryItemsToVanilla(currentMulti.Inventories[i].Items, vanillaMulti.Inventories[i].Items, options.ItemId);
+        }
+
+        var restoredBytes = current.SerializeFrom();
+        var normalizedBaseBytes = baseline.SerializeFrom();
+        if (restored == 0)
+        {
+            if (restoredBytes.SequenceEqual(normalizedBaseBytes))
+            {
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered shop data matches vanilla inventory data; leaving it in place."));
+                return 0;
+            }
+
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No Royal Candy shop entries needed restoration."));
+            return 0;
+        }
+
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+        results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} vanilla shop entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}."));
+        notes.Add($"- Restored {restored:N0} vanilla shop entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}.");
+        return restored;
+    }
+
+    private static int RestoreInventoryItemsToVanilla(IList<int> currentItems, IList<int> vanillaItems, int itemId)
+    {
+        var restored = 0;
+        for (var i = 0; i < vanillaItems.Count; i++)
+        {
+            if (vanillaItems[i] != itemId || currentItems.Contains(itemId))
+                continue;
+
+            currentItems.Insert(Math.Min(i, currentItems.Count), itemId);
+            restored++;
+        }
+
+        return restored;
+    }
+
+    private static int RestoreRaidRewardsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        const string outputRelativePath = "romfs/" + NestDataPath;
+        var layeredPath = GetLayeredFsRomFsPath(options, NestDataPath);
+        if (!File.Exists(layeredPath))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No layered raid reward data found."));
+            return 0;
+        }
+
+        var basePath = GetBaseRomFsPath(options, NestDataPath);
+        if (!File.Exists(basePath))
+            throw new FileNotFoundException("Could not find base raid reward data for Royal Candy uninstall.", basePath);
+
+        var currentBytes = File.ReadAllBytes(layeredPath);
+        var baseBytes = File.ReadAllBytes(basePath);
+        var cleanRoyalCandyOverlay = currentBytes.SequenceEqual(CreateRoyalCandyRaidCleanupBytes(baseBytes, options.ItemId));
+        var restoredRoyalCandyOverlay = currentBytes.SequenceEqual(CreateRestoredRoyalCandyRaidCleanupBytes(baseBytes, options.ItemId));
+        if (restoredRoyalCandyOverlay)
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered raid reward data already matches restored Royal Candy cleanup output; leaving it in place."));
+            return 0;
+        }
+
+        var current = new GFPack(currentBytes);
+        var baseline = new GFPack(baseBytes);
+        var restored = 0;
+        restored += RestoreNestRewardItemsToVanilla(current, baseline, "nest_hole_drop_rewards.bin", options.ItemId);
+        restored += RestoreNestRewardItemsToVanilla(current, baseline, "nest_hole_bonus_rewards.bin", options.ItemId);
+
+        var restoredBytes = current.Write();
+        var normalizedBaseBytes = baseline.Write();
+        if (restored == 0)
+        {
+            if (restoredBytes.SequenceEqual(normalizedBaseBytes))
+            {
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered raid reward data matches vanilla reward data; leaving it in place."));
+                return 0;
+            }
+
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No Royal Candy raid reward entries needed restoration."));
+            return 0;
+        }
+
+        if (cleanRoyalCandyOverlay)
+        {
+            CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+            results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} clean Royal Candy raid reward cleanup entr{(restored == 1 ? "y" : "ies")} to vanilla in place."));
+            notes.Add($"- Restored clean Royal Candy raid reward cleanup overlay at {outputRelativePath} in place.");
+            return restored;
+        }
+
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+        results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} vanilla raid reward entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}."));
+        notes.Add($"- Restored {restored:N0} vanilla raid reward entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}.");
+        return restored;
+    }
+
+    private static byte[] CreateRoyalCandyRaidCleanupBytes(byte[] baseBytes, int itemId)
+    {
+        var pack = new GFPack(baseBytes);
+        var notes = new List<string>();
+        _ = ReplaceNestRewardItems(pack, "nest_hole_drop_rewards.bin", itemId, RareCandyItemId, notes);
+        _ = ReplaceNestRewardItems(pack, "nest_hole_bonus_rewards.bin", itemId, RareCandyItemId, notes);
+        return pack.Write();
+    }
+
+    private static byte[] CreateRestoredRoyalCandyRaidCleanupBytes(byte[] baseBytes, int itemId)
+    {
+        var pack = new GFPack(CreateRoyalCandyRaidCleanupBytes(baseBytes, itemId));
+        var baseline = new GFPack(baseBytes);
+        _ = RestoreNestRewardItemsToVanilla(pack, baseline, "nest_hole_drop_rewards.bin", itemId);
+        _ = RestoreNestRewardItemsToVanilla(pack, baseline, "nest_hole_bonus_rewards.bin", itemId);
+        return pack.Write();
+    }
+
+    private static int RestoreNestRewardItemsToVanilla(GFPack current, GFPack baseline, string fileName, int itemId)
+    {
+        if (current.GetIndexFileName(fileName) < 0 || baseline.GetIndexFileName(fileName) < 0)
+            return 0;
+
+        var currentArchive = FlatBufferConverter.DeserializeFrom<NestHoleRewardArchive>(current.GetDataFileName(fileName));
+        var baseArchive = FlatBufferConverter.DeserializeFrom<NestHoleRewardArchive>(baseline.GetDataFileName(fileName));
+        var restored = 0;
+        var tableCount = Math.Min(currentArchive.Table.Count, baseArchive.Table.Count);
+        for (var tableIndex = 0; tableIndex < tableCount; tableIndex++)
+        {
+            var currentEntries = currentArchive.Table[tableIndex].Entries;
+            var baseEntries = baseArchive.Table[tableIndex].Entries;
+            var entryCount = Math.Min(currentEntries.Count, baseEntries.Count);
+            for (var entryIndex = 0; entryIndex < entryCount; entryIndex++)
+            {
+                if (baseEntries[entryIndex].ItemID != itemId || currentEntries[entryIndex].ItemID != RareCandyItemId)
+                    continue;
+
+                currentEntries[entryIndex].ItemID = (uint)itemId;
+                restored++;
+            }
+        }
+
+        if (restored != 0)
+            current.SetDataFileName(fileName, currentArchive.SerializeFrom());
+        return restored;
+    }
+
+    private static int RestorePlacementItemsToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        const string outputRelativePath = "romfs/" + PlacementPath;
+        var layeredPath = GetLayeredFsRomFsPath(options, PlacementPath);
+        if (!File.Exists(layeredPath))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No layered placement data found."));
+            return 0;
+        }
+
+        var basePath = GetBaseRomFsPath(options, PlacementPath);
+        if (!File.Exists(basePath))
+            throw new FileNotFoundException("Could not find base placement data for Royal Candy uninstall.", basePath);
+
+        var hashes = ReadItemHashes(options);
+        if (!hashes.TryGetValue(options.ItemId, out var sourceItemHash))
+            throw new InvalidOperationException($"Could not find item hash for source item {options.ItemId}.");
+        if (!hashes.TryGetValue(RareCandyItemId, out var rareCandyHash))
+            throw new InvalidOperationException("Could not find item hash for regular Rare Candy.");
+
+        var currentBytes = File.ReadAllBytes(layeredPath);
+        var baseBytes = File.ReadAllBytes(basePath);
+        var cleanRoyalCandyOverlay = currentBytes.SequenceEqual(CreateRoyalCandyPlacementCleanupBytes(baseBytes, sourceItemHash, rareCandyHash, options.ItemId));
+        var restoredRoyalCandyOverlay = currentBytes.SequenceEqual(CreateRestoredRoyalCandyPlacementCleanupBytes(baseBytes, sourceItemHash, rareCandyHash, options.ItemId));
+        if (restoredRoyalCandyOverlay)
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered placement data already matches restored Royal Candy cleanup output; leaving it in place."));
+            return 0;
+        }
+
+        var current = new GFPack(currentBytes);
+        var baseline = new GFPack(baseBytes);
+        var restored = RestorePlacementItemsToVanilla(current, baseline, sourceItemHash, rareCandyHash, (uint)options.ItemId);
+
+        var restoredBytes = current.Write();
+        var normalizedBaseBytes = baseline.Write();
+        if (restored == 0)
+        {
+            if (restoredBytes.SequenceEqual(normalizedBaseBytes))
+            {
+                results.Add(new("Info", "Uninstall", outputRelativePath, "Layered placement data matches vanilla placement data; leaving it in place."));
+                return 0;
+            }
+
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No Royal Candy placement entries needed restoration."));
+            return 0;
+        }
+
+        if (cleanRoyalCandyOverlay)
+        {
+            CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+            results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} clean Royal Candy placement cleanup entr{(restored == 1 ? "y" : "ies")} to vanilla in place."));
+            notes.Add($"- Restored clean Royal Candy placement cleanup overlay at {outputRelativePath} in place.");
+            return restored;
+        }
+
+        CommitLayeredRestore(options.OutputPath, outputRelativePath, restoredBytes, baseBytes, notes, normalizedBaseBytes);
+        results.Add(new("Pass", "Uninstall", outputRelativePath, $"Restored {restored:N0} vanilla placement pickup entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}."));
+        notes.Add($"- Restored {restored:N0} vanilla placement pickup entr{(restored == 1 ? "y" : "ies")} for item {options.ItemId}.");
+        return restored;
+    }
+
+    private static byte[] CreateRoyalCandyPlacementCleanupBytes(byte[] baseBytes, ulong sourceItemHash, ulong rareCandyHash, int itemId)
+    {
+        var pack = new GFPack(baseBytes);
+        _ = ReplacePlacementItems(pack, sourceItemHash, rareCandyHash, (uint)itemId, new List<string>());
+        return pack.Write();
+    }
+
+    private static byte[] CreateRestoredRoyalCandyPlacementCleanupBytes(byte[] baseBytes, ulong sourceItemHash, ulong rareCandyHash, int itemId)
+    {
+        var pack = new GFPack(CreateRoyalCandyPlacementCleanupBytes(baseBytes, sourceItemHash, rareCandyHash, itemId));
+        var baseline = new GFPack(baseBytes);
+        RestorePlacementItemsToVanilla(pack, baseline, sourceItemHash, rareCandyHash, (uint)itemId);
+        return pack.Write();
+    }
+
+    private static int RestorePlacementItemsToVanilla(GFPack current, GFPack baseline, ulong sourceItemHash, ulong rareCandyHash, uint itemId)
+    {
+        var currentAreas = new AHTB(current.GetDataFileName("AreaNameHashTable.tbl")).ToDictionary();
+        var baseAreas = new AHTB(baseline.GetDataFileName("AreaNameHashTable.tbl")).ToDictionary();
+        var restored = 0;
+
+        foreach (var areaName in baseAreas.Values.OrderBy(z => z, StringComparer.Ordinal))
+        {
+            var fileName = $"{areaName}.bin";
+            if (baseline.GetIndexFileName(fileName) < 0 || current.GetIndexFileName(fileName) < 0 || !currentAreas.ContainsValue(areaName))
+                continue;
+
+            var currentArchive = FlatBufferConverter.DeserializeFrom<PlacementZoneArchive>(current.GetDataFileName(fileName));
+            var baseArchive = FlatBufferConverter.DeserializeFrom<PlacementZoneArchive>(baseline.GetDataFileName(fileName));
+            var areaRestored = RestorePlacementArchiveToVanilla(currentArchive, baseArchive, sourceItemHash, rareCandyHash, itemId);
+            if (areaRestored == 0)
+                continue;
+
+            restored += areaRestored;
+            current.SetDataFileName(fileName, currentArchive.SerializeFrom());
+        }
+
+        return restored;
+    }
+
+    private static int RestorePlacementArchiveToVanilla(PlacementZoneArchive currentArchive, PlacementZoneArchive baseArchive, ulong sourceItemHash, ulong rareCandyHash, uint itemId)
+    {
+        var restored = 0;
+        var zoneCount = Math.Min(currentArchive.Table.Count, baseArchive.Table.Count);
+        for (var zoneIndex = 0; zoneIndex < zoneCount; zoneIndex++)
+        {
+            var currentZone = currentArchive.Table[zoneIndex];
+            var baseZone = baseArchive.Table[zoneIndex];
+            var fieldItemCount = Math.Min(currentZone.FieldItems.Count, baseZone.FieldItems.Count);
+            for (var fieldItemIndex = 0; fieldItemIndex < fieldItemCount; fieldItemIndex++)
+            {
+                var currentItem = currentZone.FieldItems[fieldItemIndex].Field00;
+                var baseItem = baseZone.FieldItems[fieldItemIndex].Field00;
+                restored += RestoreUlongListToVanilla(currentItem.Flags, baseItem.Flags, sourceItemHash, rareCandyHash);
+                restored += RestoreUintListToVanilla(currentItem.Items, baseItem.Items, itemId, RareCandyItemId);
+            }
+
+            var hiddenItemCount = Math.Min(currentZone.HiddenItems.Count, baseZone.HiddenItems.Count);
+            for (var hiddenItemIndex = 0; hiddenItemIndex < hiddenItemCount; hiddenItemIndex++)
+            {
+                var currentChances = currentZone.HiddenItems[hiddenItemIndex].Field00.Field02;
+                var baseChances = baseZone.HiddenItems[hiddenItemIndex].Field00.Field02;
+                var chanceCount = Math.Min(currentChances.Count, baseChances.Count);
+                for (var chanceIndex = 0; chanceIndex < chanceCount; chanceIndex++)
+                {
+                    if (baseChances[chanceIndex].Hash != sourceItemHash || currentChances[chanceIndex].Hash != rareCandyHash)
+                        continue;
+
+                    currentChances[chanceIndex].Hash = sourceItemHash;
+                    restored++;
+                }
+            }
+        }
+
+        return restored;
+    }
+
+    private static int RestoreUlongListToVanilla(IList<ulong> current, IList<ulong> baseline, ulong source, ulong replaced)
+    {
+        var restored = 0;
+        var count = Math.Min(current.Count, baseline.Count);
+        for (var i = 0; i < count; i++)
+        {
+            if (baseline[i] != source || current[i] != replaced)
+                continue;
+
+            current[i] = source;
+            restored++;
+        }
+
+        return restored;
+    }
+
+    private static int RestoreUintListToVanilla(IList<uint> current, IList<uint> baseline, uint source, uint replaced)
+    {
+        var restored = 0;
+        var count = Math.Min(current.Count, baseline.Count);
+        for (var i = 0; i < count; i++)
+        {
+            if (baseline[i] != source || current[i] != replaced)
+                continue;
+
+            current[i] = source;
+            restored++;
+        }
+
+        return restored;
+    }
+
+    private static int RestoreBagEventScriptToVanilla(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
+    {
+        const string outputRelativePath = "romfs/" + RoyalSwordScriptAmxPatcher.BagEventScriptPath;
+        var layeredPath = GetLayeredFsRomFsPath(options, RoyalSwordScriptAmxPatcher.BagEventScriptPath);
+        if (!File.Exists(layeredPath))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "No layered Bag-event script found."));
+            return 0;
+        }
+
+        var basePath = GetBaseRomFsPath(options, RoyalSwordScriptAmxPatcher.BagEventScriptPath);
+        if (!File.Exists(basePath))
+            throw new FileNotFoundException("Could not find base Bag-event script for Royal Candy uninstall.", basePath);
+
+        var currentBytes = File.ReadAllBytes(layeredPath);
+        var baseBytes = File.ReadAllBytes(basePath);
+        if (currentBytes.SequenceEqual(baseBytes))
+        {
+            results.Add(new("Info", "Uninstall", outputRelativePath, "Layered Bag-event script already matches vanilla; leaving it in place."));
+            return 0;
+        }
+
+        var expectedRoyalCandyPatch = BuildExpectedBagEventPatchForComparison(basePath, options.ItemId);
+        if (!currentBytes.SequenceEqual(expectedRoyalCandyPatch))
+        {
+            results.Add(new("Warning", "Uninstall", outputRelativePath, "Layered Bag-event AMX script is not the clean Royal Candy patch; leaving it unchanged."));
+            notes.Add($"- Left {outputRelativePath} unchanged because it does not exactly match the clean generated Royal Candy Bag-event patch.");
+            return 0;
+        }
+
+        WriteOutputBytes(options.OutputPath, outputRelativePath, baseBytes);
+        results.Add(new("Pass", "Uninstall", outputRelativePath, "Restored clean Royal Candy Bag-event script overlay to vanilla in place."));
+        notes.Add($"- Restored clean Royal Candy Bag-event script overlay at {outputRelativePath} to vanilla in place.");
+        return 1;
+    }
+
+    private static byte[] BuildExpectedBagEventPatchForComparison(string baseScriptPath, int itemId)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "RoyalCandyExpectedBagPatch_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            _ = RoyalSwordScriptAmxPatcher.PatchBagEventRoyalCandyGrant(baseScriptPath, tempRoot, itemId);
+            var patchedPath = Path.Combine(tempRoot, "romfs", RoyalSwordScriptAmxPatcher.BagEventScriptPath.Replace('/', Path.DirectorySeparatorChar));
+            return File.ReadAllBytes(patchedPath);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempRoot))
+                    Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private static void PatchExeFsMain(RoyalCandyBuildOptions options, List<BuildResult> results, List<string> notes)
     {
         if (options.ItemId != RoyalCandyItemId)
@@ -1271,9 +2293,6 @@ internal static class RoyalCandyLayeredFsBuilder
         var patchNotes = new List<string>();
         var patched = CreatePatchedExeFsMain(File.ReadAllBytes(mainPath), options, patchNotes);
         WriteOutputBytes(options.OutputPath, "exefs/main", patched);
-        var notesPath = Path.Combine(options.OutputPath, "exefs", "royal_candy_ui_hook_patch_notes.txt");
-        Directory.CreateDirectory(Path.GetDirectoryName(notesPath)!);
-        File.WriteAllText(notesPath, string.Join(Environment.NewLine, patchNotes));
 
         results.Add(new("Pass", "ExeFS", "exefs/main", "Royal Candy ExeFS patch generated."));
         notes.AddRange(patchNotes.Where(z => z.StartsWith("- ", StringComparison.Ordinal)));
@@ -1410,6 +2429,7 @@ internal static class RoyalCandyLayeredFsBuilder
 
     internal static RoyalCandyCapMilestoneDefinition[] GetDefaultCapMilestoneDefinitions() =>
     [
+        new(10, HopFirstBattleFlagHash, "Hop 004/005/006", "Hop 004/005/006"),
         new(16, HopEndorsementFlagHash, "Hop 007/008/009", "Hop 007/008/009"),
         new(20, SceneMainMasterWorkHash, "Hop 191/192/193", "Hop 191/192/193", RoyalCandyCapMilestoneKind.WorkAtLeast, 530),
         new(23, SceneMainMasterWorkHash, "Bede 195", "Bede 195", RoyalCandyCapMilestoneKind.WorkAtLeast, 550),
@@ -1953,7 +2973,23 @@ internal static class RoyalCandyLayeredFsBuilder
         if ((uint)itemId >= count)
             throw new IndexOutOfRangeException($"Item id {itemId} is outside the item index table.");
 
-        return BinaryPrimitives.ReadUInt16LittleEndian(itemData.AsSpan(0x44 + (itemId * 2)));
+        return BinaryPrimitives.ReadUInt16LittleEndian(itemData.AsSpan(GetItemEntryIndexOffset(itemId)));
+    }
+
+    private static int GetItemEntryIndexOffset(int itemId) => 0x44 + (itemId * 2);
+
+    private static int GetItemRawRowOffset(byte[] itemData, ushort rowIndex)
+    {
+        var maxEntryIndex = BinaryPrimitives.ReadUInt16LittleEndian(itemData.AsSpan(4, 2));
+        if (rowIndex >= maxEntryIndex)
+            throw new IndexOutOfRangeException($"Item raw row {rowIndex} is outside the item raw-row table.");
+
+        var entriesStart = BinaryPrimitives.ReadInt32LittleEndian(itemData.AsSpan(0x40, 4));
+        var offset = entriesStart + (rowIndex * ItemRawRowSize);
+        if (offset < 0 || offset + ItemRawRowSize > itemData.Length)
+            throw new IndexOutOfRangeException($"Item raw row {rowIndex} points outside the item data file.");
+
+        return offset;
     }
 
     private static string FormatSharedIds(IEnumerable<int> sharedIds, int itemId)
@@ -1964,34 +3000,16 @@ internal static class RoyalCandyLayeredFsBuilder
             : string.Join(", ", otherIds.Take(20)) + (otherIds.Length > 20 ? $", ... ({otherIds.Length} total)" : "");
     }
 
-    private static void WriteReadme(RoyalCandyBuildOptions options, List<string> notes)
+    private static void WriteMarkerFile(RoyalCandyBuildOptions options)
     {
         var text = string.Join(Environment.NewLine, [
-            "# Royal Candy Patch",
+            MarkerHeader,
+            "Generated by pkNX Royal Sword.",
             "",
-            "This folder is shaped like a Sword/Shield LayeredFS patch generated by pkNX Royal Sword Candy Builder.",
-            "When this build was generated, existing files in this LayeredFS folder were treated as higher-priority source files over the base dump.",
-            "",
-            $"Selected item id: `{options.ItemId}`",
-            $"Template item id: `{options.TemplateItemId}`",
-            $"Mode: `{options.Mode}`",
-            $"Game: `{options.GameFlavor}`",
-            $"Description: `{options.ItemDescription}`",
-            $"Story cap mode: `{(options.StoryCapLadder ? "Royal Sword ladder" : "disabled")}`",
-            $"Default cap: `{options.DefaultCap}`",
-            $"Max story cap: `{(options.MaxStoryCap is { } cap ? cap.ToString(CultureInfo.InvariantCulture) : "full ladder")}`",
-            "",
-            "Generated pieces:",
-            options.BuildRomFs ? "- `romfs/bin/pml/item/item.dat`: Royal Candy item metadata." : "- RomFS item output disabled.",
-            options.BuildRomFs ? "- `romfs/bin/message/*/common/itemname*.dat` and `iteminfo.dat`: Royal Candy text." : "- RomFS text output disabled.",
-            options.BuildRomFs ? "- RomFS acquisition cleanup: removes the repurposed source item from shops and replaces raid/placement sources with regular Rare Candy." : "- RomFS acquisition cleanup disabled.",
-            options.GrantOnBagEvent ? "- `romfs/bin/script/amx/main_event_0020.amx`: Bag pickup event grants Royal Candy in a fresh new game." : "- Bag pickup script grant disabled.",
-            options.BuildExeFs ? "- `exefs/main`: Royal Candy route, non-consumption, virtual count, and cap helper patch." : "- ExeFS output disabled.",
-            "",
-            "Build log:",
-            .. notes,
+            "Manage this output through the Royal Candy editor.",
         ]);
-        File.WriteAllText(Path.Combine(options.OutputPath, "README.md"), text);
+        Directory.CreateDirectory(options.OutputPath);
+        File.WriteAllText(Path.Combine(options.OutputPath, MarkerFileName), text);
     }
 
     private static string GetRomFsPath(string romFsPath, string relativePath) =>
@@ -2070,241 +3088,19 @@ internal static class RoyalCandyLayeredFsBuilder
             names.Add(Path.GetFileName(file));
     }
 
-    public static RoyalCandyInstallScan? DetectInstalledRoyalCandy(RoyalCandyBuildOptions options) =>
-        DetectExistingRoyalCandy(options);
-
-    private static RoyalCandyInstallScan? DetectExistingRoyalCandy(RoyalCandyBuildOptions options)
+    public static RoyalSwordExeFsSignatureScan? AnalyzeLayeredExeFsMain(RoyalCandyBuildOptions options)
     {
         var layeredMainPath = GetLayeredFsExeFsPath(options, "main");
         if (!File.Exists(layeredMainPath))
             return null;
 
-        try
-        {
-            var nso = new NSO(File.ReadAllBytes(layeredMainPath));
-            if (!nso.Header.Valid)
-                return null;
-
-            return DetectExistingRoyalCandyInText(nso.DecompressedText, options);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
-        {
-            return null;
-        }
+        var baseMainPath = GetBaseExeFsPath(options, "main");
+        var baseMain = File.Exists(baseMainPath) ? File.ReadAllBytes(baseMainPath) : null;
+        return RoyalSwordExeFsSignatureLibrary.AnalyzeMain(File.ReadAllBytes(layeredMainPath), baseMain, options.GameFlavor, options.ItemId);
     }
 
-    private static RoyalCandyInstallScan? DetectExistingRoyalCandyInText(byte[] text, RoyalCandyBuildOptions options)
-    {
-        var details = new List<string>();
-        if (HasRoyalCandyExpCandyBypass(text))
-            details.Add("Exp Candy XL amount bypass");
-        if (HasRoyalCandyInfiniteUsePatch(text, options.ItemId))
-            details.Add("non-consumption item-use hook");
-        if (HasRoyalCandyVirtualOwnershipPatch(text, options.ItemId))
-            details.Add("virtual ownership hook");
-        if (HasRoyalCandyVirtualCountPatch(text, options.ItemId))
-            details.Add("virtual count hook");
-        if (HasRoyalCandyUiRoutePatch(text, options.ItemId))
-            details.Add("Rare Candy UI route hook");
-
-        var storyCapDetails = new List<string>();
-        if (HasRoyalCandyDynamicUseGatePatch(text, options.ItemId))
-            storyCapDetails.Add("dynamic use gate");
-        if (HasRoyalCandyDynamicQuantityMaxPatch(text, options.ItemId))
-            storyCapDetails.Add("dynamic quantity max");
-        if (HasRoyalCandyInventoryClampBypass(text, options.ItemId))
-            storyCapDetails.Add("inventory clamp bypass");
-        if (storyCapDetails.Count != 0)
-            details.Add("story cap ladder hooks: " + string.Join(", ", storyCapDetails));
-
-        var commonAnchorCount = details.Count(detail => !detail.StartsWith("story cap ladder", StringComparison.Ordinal));
-        if (commonAnchorCount < 3 && storyCapDetails.Count < 2)
-            return null;
-
-        var mode = storyCapDetails.Count >= 2 ? RoyalCandyBuildMode.CustomLimits : RoyalCandyBuildMode.Unlimited;
-        var game = GetTitleId(options.GameFlavor);
-        var description = $"{mode} for {options.GameFlavor} (detected from layered exefs/main patch anchors in {game})";
-        return new(mode, options.GameFlavor, description, details);
-    }
-
-    private static bool HasRoyalCandyExpCandyBypass(byte[] text)
-    {
-        const int firstRangeCompareOffset = 0x007BC1BC;
-        const int secondRangeCompareOffset = 0x007BC1C4;
-        const int expCandyIndexRegister = 9;
-        return HasInstruction(text, firstRangeCompareOffset, EncodeCmpImmediate(expCandyIndexRegister, 3))
-            && HasInstruction(text, secondRangeCompareOffset, EncodeCmpImmediate(expCandyIndexRegister, 3));
-    }
-
-    private static bool HasRoyalCandyInfiniteUsePatch(byte[] text, int candidateId)
-    {
-        const int quantityMoveOffset = 0x007B1F20;
-        const int resumeOffset = quantityMoveOffset + 4;
-        if (!TryDecodeBranchTarget(text, quantityMoveOffset, out var caveOffset))
-            return false;
-
-        return HasInstruction(text, caveOffset, EncodeCmpImmediate(22, candidateId))
-            && HasInstruction(text, caveOffset + 4, EncodeConditionalSelect32(2, 31, 0, Arm64Condition.EQ))
-            && TryDecodeBranchTarget(text, caveOffset + 8, out var decodedResume)
-            && decodedResume == resumeOffset;
-    }
-
-    private static bool HasRoyalCandyVirtualOwnershipPatch(byte[] text, int candidateId)
-    {
-        const int itemOwnershipFunctionOffset = 0x01420EF0;
-        if (!TryDecodeBranchTarget(text, itemOwnershipFunctionOffset, out var dispatchCaveOffset))
-            return false;
-        if (!TryDecodeConditionalBranchTarget(text, dispatchCaveOffset + 4, Arm64Condition.EQ, out var returnCaveOffset))
-            return false;
-
-        return HasInstruction(text, dispatchCaveOffset, EncodeCmpImmediate(1, candidateId))
-            && HasInstruction(text, returnCaveOffset, EncodeMovzImmediate32(0, 1))
-            && HasInstruction(text, returnCaveOffset + 4, EncodeRet());
-    }
-
-    private static bool HasRoyalCandyVirtualCountPatch(byte[] text, int candidateId)
-    {
-        const int itemCountFunctionOffset = 0x01421090;
-        if (!TryDecodeBranchTarget(text, itemCountFunctionOffset, out var dispatchCaveOffset))
-            return false;
-        if (!TryDecodeConditionalBranchTarget(text, dispatchCaveOffset + 4, Arm64Condition.EQ, out var returnCaveOffset))
-            return false;
-
-        return HasInstruction(text, dispatchCaveOffset, EncodeCmpImmediate(1, candidateId))
-            && HasMovzImmediate32(text, returnCaveOffset, 0, out var virtualCount)
-            && virtualCount > 0
-            && HasInstruction(text, returnCaveOffset + 4, EncodeRet());
-    }
-
-    private static bool HasRoyalCandyUiRoutePatch(byte[] text, int candidateId)
-    {
-        var check = new RareCandyUiCheck(0x007BC1F8, 8, 0x007BC200, 0x007BC2B4);
-        var originalBranchOffset = check.CompareOffset + 4;
-        if (!HasInstruction(text, check.CompareOffset, EncodeCmpImmediate(check.ItemRegister, RareCandyItemId)))
-            return false;
-        if (!TryDecodeConditionalBranchTarget(text, originalBranchOffset, Arm64Condition.NE, out var caveOffset))
-            return false;
-        if (caveOffset == check.FailOffset)
-            return false;
-
-        return HasInstruction(text, caveOffset, EncodeCmpImmediate(check.ItemRegister, candidateId))
-            && TryDecodeConditionalBranchTarget(text, caveOffset + 4, Arm64Condition.EQ, out var passOffset)
-            && passOffset == check.PassOffset
-            && TryDecodeBranchTarget(text, caveOffset + 8, out var failOffset)
-            && failOffset == check.FailOffset;
-    }
-
-    private static bool HasRoyalCandyDynamicUseGatePatch(byte[] text, int candidateId)
-    {
-        const int rareCandyBranchOffset = 0x007BB208;
-        const int nonRareCandyOffset = 0x007BB26C;
-        const int itemRegister = 20;
-        const uint vanillaBranch = 0x54000321;
-        if (HasInstruction(text, rareCandyBranchOffset, vanillaBranch))
-            return false;
-        if (!TryDecodeConditionalBranchTarget(text, rareCandyBranchOffset, Arm64Condition.NE, out var itemCheckCaveOffset))
-            return false;
-
-        return HasInstruction(text, itemCheckCaveOffset, EncodeCmpImmediate(itemRegister, candidateId))
-            && TryDecodeConditionalBranchTarget(text, itemCheckCaveOffset + 4, Arm64Condition.NE, out var decodedNonRareCandy)
-            && decodedNonRareCandy == nonRareCandyOffset
-            && IsBranchInstruction(text, itemCheckCaveOffset + 8);
-    }
-
-    private static bool HasRoyalCandyDynamicQuantityMaxPatch(byte[] text, int candidateId)
-    {
-        const int rareCandyBranchOffset = 0x007BB3C4;
-        const int nonRareCandyOffset = 0x007BB3EC;
-        const int itemRegister = 19;
-        const uint vanillaBranch = 0x54000141;
-        if (HasInstruction(text, rareCandyBranchOffset, vanillaBranch))
-            return false;
-        if (!TryDecodeConditionalBranchTarget(text, rareCandyBranchOffset, Arm64Condition.NE, out var itemCheckCaveOffset))
-            return false;
-
-        return HasInstruction(text, itemCheckCaveOffset, EncodeCmpImmediate(itemRegister, candidateId))
-            && TryDecodeConditionalBranchTarget(text, itemCheckCaveOffset + 4, Arm64Condition.NE, out var decodedNonRareCandy)
-            && decodedNonRareCandy == nonRareCandyOffset
-            && IsBranchInstruction(text, itemCheckCaveOffset + 8);
-    }
-
-    private static bool HasRoyalCandyInventoryClampBypass(byte[] text, int candidateId)
-    {
-        const int clampSelectOffset = 0x007BAF3C;
-        const int resumeOffset = 0x007BAF40;
-        const uint moveSelectedItemToX0 = 0xAA1703E0;
-        if (!TryDecodeBranchTarget(text, clampSelectOffset, out var firstCaveOffset))
-            return false;
-        if (!TryDecodeBranchTarget(text, firstCaveOffset + 8, out var secondCaveOffset))
-            return false;
-
-        return HasInstruction(text, firstCaveOffset, moveSelectedItemToX0)
-            && IsBranchLinkInstruction(text, firstCaveOffset + 4)
-            && HasInstruction(text, secondCaveOffset, EncodeCmpImmediate(0, candidateId))
-            && TryDecodeConditionalBranchTarget(text, secondCaveOffset + 4, Arm64Condition.EQ, out var decodedResume)
-            && decodedResume == resumeOffset;
-    }
-
-    private static bool HasInstruction(byte[] text, int offset, uint expected) =>
-        TryReadInstruction(text, offset, out var actual) && actual == expected;
-
-    private static bool TryReadInstruction(byte[] text, int offset, out uint instruction)
-    {
-        if (offset < 0 || offset > text.Length - 4)
-        {
-            instruction = 0;
-            return false;
-        }
-
-        instruction = BinaryPrimitives.ReadUInt32LittleEndian(text.AsSpan(offset, 4));
-        return true;
-    }
-
-    private static bool TryDecodeBranchTarget(byte[] text, int sourceOffset, out int targetOffset)
-    {
-        targetOffset = 0;
-        if (!TryReadInstruction(text, sourceOffset, out var instruction) || (instruction & 0xFC000000) != 0x14000000)
-            return false;
-
-        targetOffset = sourceOffset + (SignExtend((int)(instruction & 0x03FFFFFF), 26) << 2);
-        return (uint)targetOffset <= (uint)(text.Length - 4);
-    }
-
-    private static bool TryDecodeConditionalBranchTarget(byte[] text, int sourceOffset, Arm64Condition condition, out int targetOffset)
-    {
-        targetOffset = 0;
-        if (!TryReadInstruction(text, sourceOffset, out var instruction) || (instruction & 0xFF000010) != 0x54000000)
-            return false;
-        if ((instruction & 0xF) != (uint)condition)
-            return false;
-
-        targetOffset = sourceOffset + (SignExtend((int)((instruction >> 5) & 0x7FFFF), 19) << 2);
-        return (uint)targetOffset <= (uint)(text.Length - 4);
-    }
-
-    private static bool IsBranchInstruction(byte[] text, int offset) =>
-        TryReadInstruction(text, offset, out var instruction) && (instruction & 0xFC000000) == 0x14000000;
-
-    private static bool IsBranchLinkInstruction(byte[] text, int offset) =>
-        TryReadInstruction(text, offset, out var instruction) && (instruction & 0xFC000000) == 0x94000000;
-
-    private static bool HasMovzImmediate32(byte[] text, int offset, int register, out int immediate)
-    {
-        immediate = 0;
-        if (!TryReadInstruction(text, offset, out var instruction))
-            return false;
-        if ((instruction & 0xFFE0001F) != (0x52800000u | (uint)(register & 0x1F)))
-            return false;
-
-        immediate = (int)((instruction >> 5) & 0xFFFF);
-        return true;
-    }
-
-    private static int SignExtend(int value, int bits)
-    {
-        var shift = 32 - bits;
-        return (value << shift) >> shift;
-    }
+    public static RoyalCandyInstallScan? DetectInstalledRoyalCandy(RoyalCandyBuildOptions options) =>
+        AnalyzeLayeredExeFsMain(options)?.InstalledRoyalCandy;
 
     private static string GetTitleId(RoyalCandyGameFlavor gameFlavor) => gameFlavor switch
     {
@@ -2337,6 +3133,88 @@ internal static class RoyalCandyLayeredFsBuilder
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         File.WriteAllBytes(outputPath, data);
     }
+
+    private static void CommitLayeredRestore(string outputRoot, string relativePath, byte[] restoredData, byte[] baselineData, List<string> notes, byte[]? normalizedBaselineData = null)
+    {
+        WriteOutputBytes(outputRoot, relativePath, restoredData);
+        if (restoredData.SequenceEqual(baselineData) || normalizedBaselineData is not null && restoredData.SequenceEqual(normalizedBaselineData))
+        {
+            notes.Add($"- Updated {relativePath}; Royal Candy-owned records now match vanilla and the layered file was kept.");
+            return;
+        }
+
+        notes.Add($"- Updated {relativePath}; Royal Candy-owned records were restored while unrelated layered data was preserved.");
+    }
+
+    private static bool FilesAreEqual(string leftPath, string rightPath)
+    {
+        var leftInfo = new FileInfo(leftPath);
+        var rightInfo = new FileInfo(rightPath);
+        if (leftInfo.Length != rightInfo.Length)
+            return false;
+
+        using var left = File.OpenRead(leftPath);
+        using var right = File.OpenRead(rightPath);
+        Span<byte> leftBuffer = stackalloc byte[8192];
+        Span<byte> rightBuffer = stackalloc byte[8192];
+        while (true)
+        {
+            var leftRead = left.Read(leftBuffer);
+            var rightRead = right.Read(rightBuffer);
+            if (leftRead != rightRead)
+                return false;
+            if (leftRead == 0)
+                return true;
+            if (!leftBuffer[..leftRead].SequenceEqual(rightBuffer[..rightRead]))
+                return false;
+        }
+    }
+
+    private static bool DeleteOutputFile(string outputRoot, string relativePath, ISet<string> deletedDirectories)
+    {
+        var outputPath = GetContainedOutputPath(outputRoot, relativePath);
+        if (!File.Exists(outputPath))
+            return false;
+
+        File.Delete(outputPath);
+        if (Path.GetDirectoryName(outputPath) is { } directory)
+            deletedDirectories.Add(directory);
+        return true;
+    }
+
+    private static int PruneEmptyOutputDirectories(string outputRoot, IEnumerable<string> startDirectories)
+    {
+        var root = Path.GetFullPath(outputRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var removed = 0;
+        foreach (var start in startDirectories.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var directory = Path.GetFullPath(start);
+            while (!string.Equals(directory, root, StringComparison.OrdinalIgnoreCase)
+                && IsPathInsideRoot(root, directory)
+                && Directory.Exists(directory)
+                && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+                removed++;
+                directory = Directory.GetParent(directory)?.FullName ?? root;
+            }
+        }
+
+        return removed;
+    }
+
+    private static string GetContainedOutputPath(string outputRoot, string relativePath)
+    {
+        var root = Path.GetFullPath(outputRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var outputPath = Path.GetFullPath(Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsPathInsideRoot(root, outputPath))
+            throw new InvalidOperationException($"Refusing to touch output path outside the selected LayeredFS root: {relativePath}");
+
+        return outputPath;
+    }
+
+    private static bool IsPathInsideRoot(string root, string path) =>
+        path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private enum Arm64Condition
     {
@@ -2380,7 +3258,13 @@ internal sealed record RoyalCandyBuildOptions(
     RoyalCandyBuildMode Mode);
 
 internal sealed record RoyalCandyBuildSummary(IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes);
-internal sealed record RoyalCandyBuildPreflight(bool Passed, string Message, IReadOnlyList<BuildResult> Results, IReadOnlyList<string> Notes, RoyalCandyInstallScan? InstalledRoyalCandy = null);
+internal sealed record RoyalCandyBuildPreflight(
+    bool Passed,
+    string Message,
+    IReadOnlyList<BuildResult> Results,
+    IReadOnlyList<string> Notes,
+    RoyalCandyInstallScan? InstalledRoyalCandy = null,
+    RoyalSwordExeFsSignatureScan? ExeFsSignatureScan = null);
 internal sealed record RoyalCandyInstallScan(RoyalCandyBuildMode Mode, RoyalCandyGameFlavor GameFlavor, string Description, IReadOnlyList<string> Details);
 internal sealed record BuildResult(string Status, string Area, string Output, string Message);
 

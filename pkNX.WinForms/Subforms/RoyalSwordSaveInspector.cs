@@ -10,8 +10,9 @@ namespace pkNX.WinForms;
 
 public sealed class RoyalSwordSaveInspector : Form
 {
-    private const int DefaultBaseCap = 10;
+    private const int DefaultBaseCap = 1;
     private const ulong SceneMainMasterWorkHash = 0x00188D41BB7B57FB;
+    private const ulong HopFirstBattleFlagHash = 0xA9C039F0598B8A31;
     private const ulong HopEndorsementFlagHash = 0x005A329212277F11;
 
     private static readonly RoyalSaveMilestone[] Milestones =
@@ -40,6 +41,7 @@ public sealed class RoyalSwordSaveInspector : Form
         new(23, SceneMainMasterWorkHash, "Bede 195 Galar Mine clear", RoyalSaveMilestoneKind.WorkAtLeast, 550),
         new(20, SceneMainMasterWorkHash, "Hop 191/192/193 Motostoke post-battle progress", RoyalSaveMilestoneKind.WorkAtLeast, 530),
         new(16, HopEndorsementFlagHash, "Hop 007/008/009 endorsement battle clear (FE_EV0280_WIN)"),
+        new(10, HopFirstBattleFlagHash, "Hop 004/005/006 first battle clear (FE_EV0110_WIN)"),
     ];
 
     private readonly TextBox SavePathBox = new();

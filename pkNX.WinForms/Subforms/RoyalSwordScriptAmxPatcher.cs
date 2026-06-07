@@ -107,7 +107,7 @@ internal static class RoyalSwordScriptAmxPatcher
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         File.WriteAllBytes(outputPath, patched);
 
-        string[] notes =
+        return
         [
             "Royal Candy Bag-event AMX patch",
             "==============================",
@@ -117,8 +117,6 @@ internal static class RoyalSwordScriptAmxPatcher
             $"- main_event_0020.amx: appends a new procedure at cell {grantStubCell}, then redirects the Bag-event no-op call at cell {grantStubCallerCell} to grant Royal Candy item id {candidateId} x1 before returning to vanilla script flow.",
             $"- main_event_0020.amx: header bounds moved from dat 0x{header.Dat:X}/hea 0x{header.Hea:X}/stp 0x{header.Stp:X} to dat 0x{patchedHeader.Dat:X}/hea 0x{patchedHeader.Hea:X}/stp 0x{patchedHeader.Stp:X}.",
         ];
-        File.WriteAllLines(Path.Combine(outputRoot, "royal_candy_bag_event_script_notes.txt"), notes);
-        return notes;
     }
 
     private static byte[] InsertAmxCodeCells(byte[] expanded, RoyalSwordAmxHeader header, RoyalSwordAmxHeader patchedHeader, ulong[] cellsToAppend, int cellSize)

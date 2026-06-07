@@ -45,7 +45,7 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - removes the original source item from shop inventories;
   - replaces raid bonus reward entries with regular Rare Candy;
   - replaces hidden-item placement hashes with regular Rare Candy while preserving quantity and chance;
-  - writes `royal_candy_source_cleanup_notes.txt` into generated output so the exact cleanup actions are inspectable.
+  - keeps exact cleanup actions in the editor log so the generated mod folder stays clean.
 - Reduced trainer editor startup work:
   - delays full level-up learnset loading until a move-fill or trainer-randomizer action actually needs it;
   - removes duplicate trainer-class string loading during construction;
@@ -72,11 +72,38 @@ This document tracks the dedicated Royal Candy editor redesign PR.
   - an existing compatible `exefs/main` overlay was accepted and patched from the overlay source.
 - Replaced note-based installed-patch detection with file-scan detection:
   - preflight now opens layered `exefs/main`, decompresses the NSO text segment, decodes ARM64 branch targets, and checks for the real Royal Candy hook anchors;
-  - unlimited output is detected from the common ExeFS hooks even if all generated `.txt` and `README.md` files are deleted;
+  - unlimited output is detected from the common ExeFS hooks even if generated marker/readme/note text is deleted;
   - custom-limit output is detected when the common hooks plus story-cap ladder hooks are present;
   - note-free scratch reruns correctly reported `Unlimited for Sword` and `CustomLimits for Sword` from `exefs/main` alone.
 - Updated Royal editor usability:
   - the Royal Candy window is larger, its preflight log wraps long executable-scan details, and the result grid wraps long messages instead of cutting them off;
+  - the result grid now displays newest entries first with a step marker so current actions are visually separated from older output;
   - the Customize Royal Candy Limits action now runs preflight before opening the cap editor, so an already-installed Royal Candy output is rejected immediately;
   - the Royal Candy status line now uses simple user-facing blocker text such as `Unlimited Royal Candy already installed.` or `Custom Royal Candy already installed.`;
   - Royal Candy, Flagwork, Story Events, Trainer Map, Save Inspector, Patch Manager, and the Royal Candy dialogs now use the same dark WinForms theme as the existing Royal Dialogue Map editor.
+- Added signature-gated Royal Candy uninstall support:
+  - the editor now exposes an `Uninstall Royal Candy` action next to the unlimited/custom builder actions;
+  - uninstall preflight scans layered `exefs/main` and refuses to run unless it matches a registered unlimited or custom-limit Royal Candy signature;
+  - unknown ExeFS overlays remain blocked until a signature is added to the library;
+  - successful uninstall removes only the Royal Candy `exefs/main` overlay, then prunes the `exefs` folder only when it becomes empty.
+- Changed Royal Candy uninstall to preserve unrelated custom RomFS edits:
+  - uninstall now removes the Royal Candy ExeFS patch but restores shared RomFS files record-by-record against the base dump;
+  - item id `1128` item-table indirection is restored to the vanilla raw row, and the unused appended Royal Candy row is trimmed when it is safe to do so;
+  - item name/description text restores only line `1128`;
+  - shop inventories, raid rewards, and placement pickups restore only entries whose base value is the repurposed source item and whose layered value matches the Royal Candy cleanup replacement;
+  - the Bag-event AMX overlay is restored to vanilla in place only when it exactly matches the clean generated Royal Candy patch, leaving custom script overlays untouched.
+  - uninstall does not remove RomFS LayeredFS files merely because they are byte-identical to the base dump; non-ExeFS files in a shared mod folder are treated as user-owned output and kept in their folders after Royal Candy data is cleaned out.
+- Consolidated generated text output:
+  - new builds write a single `RoyalSword_RoyalCandy.txt` marker at the selected LayeredFS output root;
+  - technical patch details stay in the Royal Candy editor log instead of being written as separate note files;
+  - uninstall no longer removes generated marker/readme/note files; only `exefs/main` is deleted, and only after a registered Royal Candy signature is confirmed.
+- Fixed Royal Candy uninstall cleanup for generated RomFS files:
+  - item generation no longer mutates the original shared item raw row before appending the Royal Candy row;
+  - uninstall restores item `1128` raw-row bytes exactly before trimming Royal Candy's appended item row in place;
+  - text, raid reward, and placement overlays are rewritten to remove Royal Candy data when they match Royal Candy-generated or restored Royal Candy cleanup states, even when container serialization bytes differ from the original dump;
+  - uninstall can now clean orphaned Royal Candy RomFS leftovers after `exefs/main` has already been removed;
+  - all RomFS file removal was removed so uninstall cannot delete unrelated user-owned files from the selected mod folder.
+- Added the first Hop battle to the customizable story-cap ladder:
+  - the fallback cap before any story milestone is now level `1`;
+  - `FE_EV0110_WIN` / Hop 004/005/006 is now the first editable custom-limit row and defaults to cap `10`;
+  - the Royal Save Inspector now reports the same cap progression, so pre-first-Hop saves show cap `1` and post-first-Hop saves show cap `10`.
