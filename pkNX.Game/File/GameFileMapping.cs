@@ -2,7 +2,9 @@ using pkNX.Containers;
 using pkNX.Structures;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using static pkNX.Structures.GameVersion;
 using static pkNX.Game.GameFile;
@@ -20,6 +22,8 @@ public class GameFileMapping
 
     public readonly ContainerHandler ProgressTracker = new();
     public readonly CancellationTokenSource TokenSource = new();
+    internal bool HasModifiedFiles => Cache.Values.Any(z => z.Modified);
+    internal IReadOnlyList<string> ModifiedFileLabels => GetModifiedFileLabels();
 
     private readonly GameLocation ROM;
     public GameFileMapping(GameLocation rom) => FileMap = GetMapping((ROM = rom).Game);
@@ -47,17 +51,141 @@ public class GameFileMapping
         return container;
     }
 
-    internal void SaveAll()
+    internal void SaveAll(Action<string>? saving = null, Action<string>? saved = null)
     {
         foreach (var container in Cache)
         {
             var c = container.Value;
-            if (c.Modified)
-                c.SaveAs(c.FilePath!, ProgressTracker, TokenSource.Token).RunSynchronously();
+            if (!c.Modified)
+                continue;
+
+            var label = GetModifiedFileLabel(container.Key, c);
+            saving?.Invoke(label);
+            c.SaveAs(c.FilePath!, ProgressTracker, TokenSource.Token).RunSynchronously();
+            saved?.Invoke(label);
         }
         var modified = Cache.Where(z => z.Value.Modified).ToArray();
         foreach (var m in modified)
             Cache.Remove(m.Key);
+    }
+
+    private IReadOnlyList<string> GetModifiedFileLabels()
+    {
+        return Cache
+            .Where(z => z.Value.Modified)
+            .Select(z => GetModifiedFileLabel(z.Key, z.Value))
+            .OrderBy(z => z, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private string GetModifiedFileLabel(GameFile file, IFileContainer container)
+    {
+        var label = GetFriendlyFileName(file);
+        var path = GetDisplayPath(file, container);
+        return string.IsNullOrWhiteSpace(path) ? label : $"{label} ({path})";
+    }
+
+    private string GetDisplayPath(GameFile file, IFileContainer container)
+    {
+        if (!string.IsNullOrWhiteSpace(container.FilePath))
+            return GetDisplayPath(container.FilePath);
+
+        var reference = FileMap.FirstOrDefault(z => z.File == file);
+        if (reference == null)
+            return string.Empty;
+
+        var root = reference.Parent == ContainerParent.ExeFS ? "exefs" : "romfs";
+        return Path.Combine(root, reference.RelativePath);
+    }
+
+    private string GetDisplayPath(string path)
+    {
+        if (TryGetRelativePath(ROM.RomFS, "romfs", path, out var relative) ||
+            TryGetRelativePath(ROM.ExeFS, "exefs", path, out relative))
+            return relative;
+
+        return Path.GetFileName(path);
+    }
+
+    private static bool TryGetRelativePath(string? root, string rootLabel, string path, out string relative)
+    {
+        relative = string.Empty;
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(path))
+            return false;
+
+        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(path);
+        if (!fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(fullPath, fullRoot, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        relative = Path.Combine(rootLabel, Path.GetRelativePath(fullRoot, fullPath));
+        return true;
+    }
+
+    private static string GetFriendlyFileName(GameFile file) => file switch
+    {
+        GameText or GameText0 or GameText1 or GameText2 or GameText3 or GameText4 or GameText5 or GameText6 or GameText7 or GameText8 or GameText9 => "Common Text",
+        StoryText or StoryText0 or StoryText1 or StoryText2 or StoryText3 or StoryText4 or StoryText5 or StoryText6 or StoryText7 or StoryText8 or StoryText9 => "Story Text",
+        TrainerSpecClass => "Trainer Classes",
+        TrainerSpecData => "Trainer Data",
+        TrainerSpecPoke => "Trainer Pokemon Teams",
+        MoveStats => "Move Data",
+        GameFile.EggMoves => "Egg Moves",
+        Learnsets => "Pokemon Learnsets",
+        Evolutions => "Evolutions",
+        MegaEvolutions => "Mega Evolutions",
+        PersonalStats => "Pokemon Personal Stats",
+        ItemStats => "Item Data",
+        EncounterTableStatic => "Static Encounters",
+        EncounterTableTrade => "In-Game Trades",
+        EncounterTableGift => "Gift Pokemon",
+        FacilityTrainerNormal => "Battle Tower Trainers",
+        FacilityTrainerSuper => "Battle Tower Super Trainers",
+        FacilityPokeNormal => "Battle Tower Pokemon",
+        FacilityPokeSuper => "Battle Tower Super Pokemon",
+        NestData => "Raid Den Data",
+        WildData or WildData1 or WildData2 => "Wild Encounter Data",
+        DynamaxDens => "Dynamax Adventure Dens",
+        Placement => "Placement Data",
+        Shops => "Shop Inventories",
+        Rentals => "Rental Teams",
+        SymbolBehave => "Symbol Encounter Behavior",
+        ItemHash => "Item Hash Index",
+        EncounterRateTable => "Encounter Rate Tables",
+        Outbreak => "Outbreak Data",
+        MoveShop => "Move Shop Data",
+        PokeMisc => "Pokemon Misc Data",
+        DexResearch => "Pokedex Research",
+        DexFormStorage => "Pokedex Form Storage",
+        DexRank => "Pokedex Rank Data",
+        ThrowParam => "Throw Parameters",
+        ThrowPermissionSet => "Throw Permissions",
+        ThrowableParam => "Throwable Parameters",
+        ThrowableResource => "Throwable Resources",
+        ThrowableResourceSet => "Throwable Resource Sets",
+        HaShop => "Shop Data",
+        _ => SplitPascalName(file.ToString()),
+    };
+
+    private static string SplitPascalName(string name)
+    {
+        if (name.Length == 0)
+            return name;
+
+        var result = new StringBuilder(name.Length + 8);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var current = name[i];
+            var previous = i > 0 ? name[i - 1] : '\0';
+            var next = i + 1 < name.Length ? name[i + 1] : '\0';
+            if (i > 0 && char.IsUpper(current) && (char.IsLower(previous) || char.IsLower(next)))
+                result.Append(' ');
+
+            result.Append(current);
+        }
+
+        return result.ToString();
     }
 
     public static IReadOnlyCollection<GameFileReference> GetMapping(GameVersion game) => game switch

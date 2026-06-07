@@ -78,11 +78,17 @@ public partial class Main : Form
 
     private async void Main_FormClosing(object sender, FormClosingEventArgs e)
     {
-        if (Editor == null)
+        var editor = Editor;
+        if (editor == null)
             return;
 
-        Editor.Close();
-        EditUtil.SaveSettings(Editor.Game);
+        if (!ExitSaveProgressDialog.Show(this, editor.ModifiedFileLabels, editor.Close))
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        EditUtil.SaveSettings(editor.Game);
         Settings.Language = CB_Lang.SelectedIndex;
         Settings.GamePath = TB_Path.Text;
         await ProgramSettings.SaveSettings(Program.Settings);

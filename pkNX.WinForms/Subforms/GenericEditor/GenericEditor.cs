@@ -20,6 +20,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
 
     private string[] Names;
     private EntryComboEntry[] EntryEntries = [];
+    private int LastConfirmedEntryIndex;
     private DataCache<T> Cache;
     private readonly ShopTableView ShopTable = new();
     private readonly PlacementTableView PlacementTable = new();
@@ -86,6 +87,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
 
         CB_EntryName.Items.AddRange(EntryEntries);
         CB_EntryName.SelectedIndex = 0;
+        LastConfirmedEntryIndex = 0;
         UpdateShopEditorMinimumSize();
 
         if (!canSave)
@@ -212,6 +214,8 @@ public sealed partial class GenericEditor<T> : Form where T : class
             return;
 
         var index = GetSelectedEntryIndex();
+        if (index >= 0)
+            LastConfirmedEntryIndex = index;
         LoadIndex(index);
     }
 
@@ -374,20 +378,9 @@ public sealed partial class GenericEditor<T> : Form where T : class
 
     private void CB_EntryName_BeforeMouseWheel(object? sender, EntrySelectorMouseWheelEventArgs e)
     {
-        if (EntrySearchList is { Visible: true, Items.Count: > 0 } list)
-        {
-            ScrollEntrySearchListByWheel(list, e.MouseEvent.Delta);
+        HideEntrySearchList();
+        if (TryScrollEntry(e.MouseEvent.Delta))
             e.Handled = true;
-            return;
-        }
-
-        if (TryScrollMachineEntry(e.MouseEvent.Delta))
-        {
-            e.Handled = true;
-            return;
-        }
-
-        CommitEntrySelectionFromText(allowPrefix: true);
     }
 
     private void HandleEntryDeleteKey(KeyEventArgs e)
@@ -626,6 +619,7 @@ public sealed partial class GenericEditor<T> : Form where T : class
         CB_EntryName.Items.AddRange(EntryEntries);
         CB_EntryName.EndUpdate();
         SuppressEntrySelectionChanged = false;
+        LastConfirmedEntryIndex = index;
         CB_EntryName.SelectedItem = EntryEntries[index];
         SetEntryText(index);
         HideEntrySearchList();
@@ -636,8 +630,10 @@ public sealed partial class GenericEditor<T> : Form where T : class
         if ((uint)index >= (uint)EntryEntries.Length)
             return;
 
+        UpdatingEntryFilter = true;
         CB_EntryName.Text = EntryEntries[index].Text;
         SelectEntryText(0, 0);
+        UpdatingEntryFilter = false;
     }
 
     private int GetEntrySelectionStart()
@@ -682,9 +678,28 @@ public sealed partial class GenericEditor<T> : Form where T : class
             list.SelectedIndex = index;
     }
 
-    private bool TryScrollMachineEntry(int delta)
+    private bool TryScrollEntry(int delta)
     {
-        if (!TryGetCurrentMachineEntry(out var kind, out var number))
+        if (EntryEntries.Length == 0)
+            return false;
+
+        var anchor = LastConfirmedEntryIndex;
+        if ((uint)anchor >= (uint)EntryEntries.Length)
+            anchor = Math.Clamp(GetSelectedEntryIndex(), 0, EntryEntries.Length - 1);
+
+        if (TryScrollMachineEntry(delta, anchor))
+            return true;
+
+        var direction = delta < 0 ? 1 : -1;
+        var next = Math.Clamp(anchor + direction, 0, EntryEntries.Length - 1);
+        SelectEntryIndex(next);
+        return true;
+    }
+
+    private bool TryScrollMachineEntry(int delta, int anchorIndex)
+    {
+        if ((uint)anchorIndex >= (uint)EntryEntries.Length ||
+            !TryGetMachineName(EntryEntries[anchorIndex].Text, out var kind, out var number))
             return false;
 
         var direction = delta < 0 ? 1 : -1;
@@ -699,20 +714,6 @@ public sealed partial class GenericEditor<T> : Form where T : class
         }
 
         return true;
-    }
-
-    private bool TryGetCurrentMachineEntry(out string kind, out int number)
-    {
-        if (TryGetMachineName(CB_EntryName.Text, out kind, out number))
-            return true;
-
-        var index = GetSelectedEntryIndex();
-        if ((uint)index < (uint)Names.Length && TryGetMachineName(Names[index], out kind, out number))
-            return true;
-
-        kind = string.Empty;
-        number = -1;
-        return false;
     }
 
     private int FindMachineEntryIndex(string kind, int number)
@@ -933,7 +934,33 @@ public sealed partial class GenericEditor<T> : Form where T : class
     private sealed class EntrySelectorComboBox : ComboBox
     {
         private const int WM_MOUSEWHEEL = 0x020A;
+        private bool SelectAllOnMouseUp;
         public event EventHandler<EntrySelectorMouseWheelEventArgs>? BeforeMouseWheel;
+
+        protected override void OnEnter(EventArgs e)
+        {
+            base.OnEnter(e);
+            BeginInvoke((MethodInvoker)SelectAll);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (!Focused && e.Button == MouseButtons.Left && !IsDropDownButtonClick(e))
+                SelectAllOnMouseUp = true;
+
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+
+            if (!SelectAllOnMouseUp)
+                return;
+
+            SelectAllOnMouseUp = false;
+            BeginInvoke((MethodInvoker)SelectAll);
+        }
 
         protected override void WndProc(ref Message m)
         {
@@ -951,6 +978,14 @@ public sealed partial class GenericEditor<T> : Form where T : class
             var args = new EntrySelectorMouseWheelEventArgs(mouseEvent);
             BeforeMouseWheel?.Invoke(this, args);
             return args.Handled;
+        }
+
+        private bool IsDropDownButtonClick(MouseEventArgs e)
+        {
+            var buttonWidth = SystemInformation.HorizontalScrollBarArrowWidth;
+            return RightToLeft == RightToLeft.No
+                ? e.X >= Width - buttonWidth
+                : e.X <= buttonWidth;
         }
     }
 

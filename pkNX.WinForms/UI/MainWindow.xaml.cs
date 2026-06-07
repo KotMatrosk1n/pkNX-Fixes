@@ -324,11 +324,17 @@ public partial class MainWindow
 
     private async void Window_Closing(object sender, CancelEventArgs e)
     {
-        if (Editor == null)
+        var editor = Editor;
+        if (editor == null)
             return;
 
-        Editor.Close();
-        EditUtil.SaveSettings(Editor.Game);
+        if (!ExitSaveProgressDialog.Show(null, editor.ModifiedFileLabels, editor.Close))
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        EditUtil.SaveSettings(editor.Game);
         Settings.Language = CB_Lang.SelectedIndex;
         Settings.GamePath = (string)L_Path.Content;
         await ProgramSettings.SaveSettings(Settings);

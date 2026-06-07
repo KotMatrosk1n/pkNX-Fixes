@@ -89,14 +89,16 @@ public abstract class EditorBase
         return !callable.IsAdvanced || displayAdvanced;
     }
 
-    public void Close()
+    public void Close(Action<string>? saving = null, Action<string>? saved = null)
     {
-        ROM.SaveAll(true);
+        ROM.SaveAll(true, saving, saved);
         if (ROM is IDisposable d)
             d.Dispose();
     }
 
     public void Save() => ROM.SaveAll(false);
+    public bool HasModifiedFiles => ROM.HasModifiedFiles;
+    public IReadOnlyList<string> ModifiedFileLabels => ROM.ModifiedFileLabels;
 
     private static EditorBase? GetEditor(GameManager ROM) => ROM switch
     {
